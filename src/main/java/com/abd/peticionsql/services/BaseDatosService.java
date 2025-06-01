@@ -4,8 +4,11 @@ import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class BaseDatosService {
@@ -36,5 +39,20 @@ public class BaseDatosService {
                 Statement stmt = conn.createStatement()) {
             stmt.executeUpdate(sql);
         }
+    }
+
+    public List<String> listarBasesDatos() throws SQLException {
+        List<String> databases = new ArrayList<>();
+        String sql = "SELECT name FROM sys.databases WHERE database_id > 4"; // Excluye bases de datos del sistema
+
+        try (Connection conn = DriverManager.getConnection(url, user, password);
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                databases.add(rs.getString("name"));
+            }
+        }
+        return databases;
     }
 }
