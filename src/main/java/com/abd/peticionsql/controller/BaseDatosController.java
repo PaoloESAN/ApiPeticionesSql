@@ -1,6 +1,7 @@
 package com.abd.peticionsql.controller;
 
 import com.abd.peticionsql.services.BaseDatosService;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,7 +20,7 @@ public class BaseDatosController {
     }
 
     @PostMapping("/crearBase")
-    public ResponseEntity<String> crearBase(@RequestParam(name = "nombre",required = true) String nombre) {
+    public ResponseEntity<String> crearBase(@RequestParam(name = "nombre", required = true) String nombre) {
         try {
             baseDatosService.crearBaseDatos(nombre);
             return ResponseEntity.ok("Base de datos '" + nombre + "' creada correctamente.");
@@ -28,8 +29,9 @@ public class BaseDatosController {
                     .body("Error al crear la base: " + e.getMessage());
         }
     }
+
     @PostMapping("/eliminarBase")
-    public ResponseEntity<String> eliminarBase(@RequestParam(name = "nombre",required = true) String nombre) {
+    public ResponseEntity<String> eliminarBase(@RequestParam(name = "nombre", required = true) String nombre) {
         try {
             baseDatosService.eliminarBaseDatos(nombre);
             return ResponseEntity.ok("Base de datos '" + nombre + "' eliminada correctamente.");
@@ -38,9 +40,10 @@ public class BaseDatosController {
                     .body("Error al eliminar la base: " + e.getMessage());
         }
     }
+
     @PostMapping("/consultaBase")
-    public ResponseEntity<String> consultaBase(@RequestParam(name = "nombre",required = true) String nombre,
-                                               @RequestParam(name = "sql",required = true) String sql) {
+    public ResponseEntity<String> consultaBase(@RequestParam(name = "nombre", required = true) String nombre,
+            @RequestParam(name = "sql", required = true) String sql) {
         try {
             baseDatosService.comandoPersonalizado(nombre, sql);
             return ResponseEntity.ok("Consulta ejecutada correctamente.");
