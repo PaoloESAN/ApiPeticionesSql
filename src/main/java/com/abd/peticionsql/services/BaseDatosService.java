@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -33,11 +34,42 @@ public class BaseDatosService {
         }
     }
 
-    public void comandoPersonalizado(String nombreBD, String sql) throws SQLException {
+    public String comandoPersonalizado(String nombreBD, String sql) throws SQLException {
         String urlConBD = url + "databaseName=" + nombreBD + ";";
         try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
                 Statement stmt = conn.createStatement()) {
-            stmt.executeUpdate(sql);
+
+            boolean isQuery = stmt.execute(sql);
+
+            if (isQuery) {
+                StringBuilder result = new StringBuilder();
+                try (ResultSet rs = stmt.getResultSet()) {
+                    ResultSetMetaData metaData = rs.getMetaData();
+                    int columnCount = metaData.getColumnCount();
+                    for (int i = 1; i <= columnCount; i++) {
+                        if (i > 1) {
+                            result.append(" | ");
+                        }
+                        result.append(metaData.getColumnName(i));
+                    }
+                    result.append("\n");
+                    result.append("-".repeat(result.length())).append("\n");
+                    while (rs.next()) {
+                        for (int i = 1; i <= columnCount; i++) {
+                            if (i > 1) {
+                                result.append(" | ");
+                            }
+                            String valor = rs.getString(i);
+                            result.append(valor != null ? valor : "NULL");
+                        }
+                        result.append("\n");
+                    }
+                }
+                return result.toString();
+            } else {
+                int affectedRows = stmt.getUpdateCount();
+                return "Filas afectadas: " + affectedRows;
+            }
         }
     }
 

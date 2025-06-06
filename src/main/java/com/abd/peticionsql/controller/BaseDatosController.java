@@ -60,9 +60,9 @@ public class BaseDatosController {
             @RequestParam(name = "nombre", required = true) String nombre,
             @RequestParam(name = "sql", required = true) String sql) {
         try {
-            baseDatosService.comandoPersonalizado(nombre, sql);
+            String resultado = baseDatosService.comandoPersonalizado(nombre, sql);
             Map<String, String> response = new HashMap<>();
-            response.put("respuesta", "Consulta ejecutada correctamente.");
+            response.put("respuesta", resultado);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             Map<String, String> errorResponse = new HashMap<>();
