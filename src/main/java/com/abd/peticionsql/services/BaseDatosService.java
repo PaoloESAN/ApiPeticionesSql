@@ -87,4 +87,38 @@ public class BaseDatosService {
         }
         return databases;
     }
+
+    public List<String> listarTablas(String nombreBD) throws SQLException {
+        List<String> tablas = new ArrayList<>();
+        String urlConBD = url + "databaseName=" + nombreBD + ";";
+        String sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'";
+
+        try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                tablas.add(rs.getString("TABLE_NAME"));
+            }
+        }
+        return tablas;
+    }
+
+    public List<String> listarColumnas(String nombreBD, String nombreTabla) throws SQLException {
+        List<String> columnas = new ArrayList<>();
+        String urlConBD = url + "databaseName=" + nombreBD + ";";
+        String sql = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '" + nombreTabla
+                + "' ORDER BY ORDINAL_POSITION";
+
+        try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                columnas.add(rs.getString("COLUMN_NAME"));
+            }
+        }
+        return columnas;
+    }
+
 }

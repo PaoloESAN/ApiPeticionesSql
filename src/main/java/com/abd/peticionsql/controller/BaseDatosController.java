@@ -84,4 +84,31 @@ public class BaseDatosController {
         }
     }
 
+    @GetMapping("/tablas")
+    public ResponseEntity<?> listarTablas(@RequestParam(name = "nombre", required = true) String nombre) {
+        try {
+            List<String> tablas = baseDatosService.listarTablas(nombre);
+            return ResponseEntity.ok(tablas);
+        } catch (SQLException e) {
+            Map<String, String> response = new HashMap<>();
+            response.put("error", "Error al listar las tablas de la base de datos '" + nombre + "': " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    @GetMapping("/columnas")
+    public ResponseEntity<?> listarColumnas(
+            @RequestParam(name = "tabla", required = true) String nombreTabla,
+            @RequestParam(name = "bd", required = true) String nombreBD) {
+        try {
+            List<String> columnas = baseDatosService.listarColumnas(nombreBD, nombreTabla);
+            return ResponseEntity.ok(columnas);
+        } catch (SQLException e) {
+            Map<String, String> response = new HashMap<>();
+            response.put("error", "Error al listar las columnas de la tabla '" + nombreTabla + "' en la base de datos '"
+                    + nombreBD + "': " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
 }
