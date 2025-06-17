@@ -1,5 +1,6 @@
 package com.abd.peticionsql.services;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
@@ -14,9 +15,12 @@ import java.util.List;
 @Service
 public class BaseDatosService {
 
-    private static final String url = "jdbc:sqlserver://localhost\\SQLEXPRESS;trustServerCertificate=true;";
-    private static final String user = "sa";
-    private static final String password = "123456789";
+    @Value("${spring.datasource.url}")
+    private String url;
+    @Value("${spring.datasource.username}")
+    private String user;
+    @Value("${spring.datasource.password}")
+    private String password;
 
     public void crearBaseDatos(String nombreBD) throws SQLException {
         String sql = "CREATE DATABASE [" + nombreBD + "]";
