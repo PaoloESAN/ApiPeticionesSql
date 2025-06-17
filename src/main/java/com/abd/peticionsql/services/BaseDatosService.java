@@ -95,7 +95,7 @@ public class BaseDatosService {
     public List<String> listarTablas(String nombreBD) throws SQLException {
         List<String> tablas = new ArrayList<>();
         String urlConBD = url + "databaseName=" + nombreBD + ";";
-        String sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'";
+        String sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME NOT LIKE 'sys%'";
 
         try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
                 Statement stmt = conn.createStatement();
