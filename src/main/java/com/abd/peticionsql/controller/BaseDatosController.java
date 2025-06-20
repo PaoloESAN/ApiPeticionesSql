@@ -124,4 +124,15 @@ public class BaseDatosController {
         }
     }
 
+    @GetMapping(value = "/datos", produces = "text/plain;charset=UTF-8")
+    public ResponseEntity<String> obtenerDatosBaseDatos(@RequestParam(name = "bd", required = true) String nombreBD) {
+        try {
+            String datos = baseDatosService.obtenerDatosBaseDatos(nombreBD);
+            return ResponseEntity.ok(datos);
+        } catch (SQLException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Error al obtener los datos de la base de datos '" + nombreBD + "': " + e.getMessage());
+        }
+    }
+
 }
