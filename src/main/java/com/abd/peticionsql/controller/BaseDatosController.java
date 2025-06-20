@@ -111,4 +111,17 @@ public class BaseDatosController {
         }
     }
 
+    @GetMapping("/vistas")
+    public ResponseEntity<?> listarVistas(@RequestParam(name = "bd", required = true) String nombreBD) {
+        try {
+            List<String> vistas = baseDatosService.listarVistas(nombreBD);
+            return ResponseEntity.ok(vistas);
+        } catch (SQLException e) {
+            Map<String, String> response = new HashMap<>();
+            response.put("error",
+                    "Error al listar las vistas de la base de datos '" + nombreBD + "': " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
 }

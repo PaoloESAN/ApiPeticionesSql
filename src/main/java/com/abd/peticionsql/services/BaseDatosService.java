@@ -125,4 +125,20 @@ public class BaseDatosService {
         return columnas;
     }
 
+    public List<String> listarVistas(String nombreBD) throws SQLException {
+        List<String> vistas = new ArrayList<>();
+        String urlConBD = url + "databaseName=" + nombreBD + ";";
+        String sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS";
+
+        try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                vistas.add(rs.getString("TABLE_NAME"));
+            }
+        }
+        return vistas;
+    }
+
 }
