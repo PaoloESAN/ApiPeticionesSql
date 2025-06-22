@@ -73,6 +73,23 @@ public class BaseDatosController {
         }
     }
 
+    @GetMapping("/consultaSelect")
+    public ResponseEntity<Map<String, String>> consultaSelect(
+            @RequestParam(name = "bd", required = true) String nombreBD,
+            @RequestParam(name = "sql", required = true) String sql) {
+        try {
+            String resultado = baseDatosService.ejecutarSelect(nombreBD, sql);
+            Map<String, String> response = new HashMap<>();
+            response.put("respuesta", resultado);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("respuesta", "Error al ejecutar la consulta SELECT: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(errorResponse);
+        }
+    }
+
     @GetMapping("/listarBases")
     public ResponseEntity<?> listarBases() {
         try {

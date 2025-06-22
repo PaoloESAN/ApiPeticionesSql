@@ -247,4 +247,64 @@ public class BaseDatosService {
         return resultado.toString();
     }
 
+    public String ejecutarSelect(String nombreBD, String sql) throws SQLException {
+        // Validar que solo sea una consulta SELECT
+        String sqlTrimmed = sql.trim().toUpperCase();
+        if (!sqlTrimmed.startsWith("SELECT")) {
+            throw new SQLException("Solo se permiten consultas SELECT");
+        }
+
+        String urlConBD = url + "databaseName=" + nombreBD + ";";
+        StringBuilder jsonResult = new StringBuilder();
+        jsonResult.append("[");
+        try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(sql)) {
+
+            ResultSetMetaData metaData = rs.getMetaData();
+            int columnCount = metaData.getColumnCount();
+            boolean firstRow = true;
+
+            while (rs.next()) {
+                if (!firstRow) {
+                    jsonResult.append(",");
+                }
+                firstRow = false;
+
+                jsonResult.append("{");
+                for (int i = 1; i <= columnCount; i++) {
+                    if (i > 1) {
+                        jsonResult.append(",");
+                    }
+
+                    String columnName = metaData.getColumnName(i);
+                    String value = rs.getString(i);
+
+                    jsonResult.append("\"").append(columnName).append("\":");
+
+                    if (value == null) {
+                        jsonResult.append("null");
+                    } else {
+                        // Escapar caracteres especiales en el valor
+                        String escapedValue = value.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+
+                        // Determinar si es número o string
+                        String columnType = metaData.getColumnTypeName(i).toUpperCase();
+                        if (columnType.contains("INT") || columnType.contains("DECIMAL") ||
+                                columnType.contains("FLOAT") || columnType.contains("NUMERIC") ||
+                                columnType.contains("REAL") || columnType.contains("DOUBLE")) {
+                            jsonResult.append(escapedValue);
+                        } else {
+                            jsonResult.append("\"").append(escapedValue).append("\"");
+                        }
+                    }
+                }
+                jsonResult.append("}");
+            }
+        }
+
+        jsonResult.append("]");
+        return jsonResult.toString();
+    }
+
 }
