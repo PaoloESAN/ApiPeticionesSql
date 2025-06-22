@@ -1,5 +1,6 @@
 package com.abd.peticionsql.controller;
 
+import com.abd.peticionsql.model.ColumnaInfo;
 import com.abd.peticionsql.services.BaseDatosService;
 import java.util.Map;
 import java.util.HashMap;
@@ -101,7 +102,7 @@ public class BaseDatosController {
             @RequestParam(name = "tabla", required = true) String nombreTabla,
             @RequestParam(name = "bd", required = true) String nombreBD) {
         try {
-            List<String> columnas = baseDatosService.listarColumnas(nombreBD, nombreTabla);
+            List<ColumnaInfo> columnas = baseDatosService.listarColumnas(nombreBD, nombreTabla);
             return ResponseEntity.ok(columnas);
         } catch (SQLException e) {
             Map<String, String> response = new HashMap<>();

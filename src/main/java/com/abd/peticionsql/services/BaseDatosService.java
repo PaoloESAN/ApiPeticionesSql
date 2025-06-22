@@ -1,5 +1,6 @@
 package com.abd.peticionsql.services;
 
+import com.abd.peticionsql.model.ColumnaInfo;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -109,18 +110,63 @@ public class BaseDatosService {
         return tablas;
     }
 
-    public List<String> listarColumnas(String nombreBD, String nombreTabla) throws SQLException {
-        List<String> columnas = new ArrayList<>();
-        String urlConBD = url + "databaseName=" + nombreBD + ";";
-        String sql = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '" + nombreTabla
-                + "' ORDER BY ORDINAL_POSITION";
-
+    public List<ColumnaInfo> listarColumnas(String nombreBD, String nombreTabla) throws SQLException {
+        List<ColumnaInfo> columnas = new ArrayList<>();
+        String urlConBD = url + "databaseName=" + nombreBD + ";"; // SQL para obtener información completa de las
+                                                                  // columnas
+        String sql = """
+                SELECT
+                    c.COLUMN_NAME,
+                    c.DATA_TYPE +
+                    CASE
+                        WHEN c.CHARACTER_MAXIMUM_LENGTH IS NOT NULL THEN '(' + CAST(c.CHARACTER_MAXIMUM_LENGTH AS VARCHAR) + ')'
+                        WHEN c.NUMERIC_PRECISION IS NOT NULL AND c.NUMERIC_SCALE IS NOT NULL THEN '(' + CAST(c.NUMERIC_PRECISION AS VARCHAR) + ',' + CAST(c.NUMERIC_SCALE AS VARCHAR) + ')'
+                        WHEN c.NUMERIC_PRECISION IS NOT NULL THEN '(' + CAST(c.NUMERIC_PRECISION AS VARCHAR) + ')'
+                        ELSE ''
+                    END as TIPO_COMPLETO,
+                    CASE WHEN c.IS_NULLABLE = 'YES' THEN 1 ELSE 0 END as ES_NULO,
+                    CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as ES_PRIMARIA,
+                    CASE WHEN fk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as ES_FORANEA,
+                    fk.REFERENCED_TABLE_NAME as TABLA_REFERENCIA,
+                    fk.REFERENCED_COLUMN_NAME as COLUMNA_REFERENCIA
+                FROM INFORMATION_SCHEMA.COLUMNS c
+                LEFT JOIN (
+                    SELECT ku.COLUMN_NAME
+                    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                    INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                    ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                    WHERE tc.TABLE_NAME = ? AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                ) pk ON c.COLUMN_NAME = pk.COLUMN_NAME                LEFT JOIN (
+                    SELECT
+                        COL_NAME(fc.parent_object_id, fc.parent_column_id) AS COLUMN_NAME,
+                        OBJECT_NAME(fc.referenced_object_id) AS REFERENCED_TABLE_NAME,
+                        COL_NAME(fc.referenced_object_id, fc.referenced_column_id) AS REFERENCED_COLUMN_NAME
+                    FROM sys.foreign_keys AS f
+                    INNER JOIN sys.foreign_key_columns AS fc ON f.object_id = fc.constraint_object_id
+                    WHERE OBJECT_NAME(fc.parent_object_id) = ?
+                ) fk ON c.COLUMN_NAME = fk.COLUMN_NAME
+                WHERE c.TABLE_NAME = ?
+                ORDER BY c.ORDINAL_POSITION
+                """;
         try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
-                Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery(sql)) {
+                PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
-            while (rs.next()) {
-                columnas.add(rs.getString("COLUMN_NAME"));
+            pstmt.setString(1, nombreTabla);
+            pstmt.setString(2, nombreTabla);
+            pstmt.setString(3, nombreTabla);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    ColumnaInfo columna = new ColumnaInfo(
+                            rs.getString("COLUMN_NAME"),
+                            rs.getString("TIPO_COMPLETO"),
+                            rs.getBoolean("ES_NULO"),
+                            rs.getBoolean("ES_PRIMARIA"),
+                            rs.getBoolean("ES_FORANEA"),
+                            rs.getString("TABLA_REFERENCIA"),
+                            rs.getString("COLUMNA_REFERENCIA"));
+                    columnas.add(columna);
+                }
             }
         }
         return columnas;
