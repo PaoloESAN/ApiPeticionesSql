@@ -23,7 +23,6 @@ public class ColumnaInfo {
         this.columnaReferencia = columnaReferencia;
     }
 
-    // Getters y Setters
     public String getNombre() {
         return nombre;
     }

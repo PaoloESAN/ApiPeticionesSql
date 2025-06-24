@@ -153,4 +153,17 @@ public class BaseDatosController {
         }
     }
 
+    @GetMapping("/procedures")
+    public ResponseEntity<?> listarStoredProcedures(@RequestParam(name = "bd", required = true) String nombreBD) {
+        try {
+            List<String> procedures = baseDatosService.listarStoredProcedures(nombreBD);
+            return ResponseEntity.ok(procedures);
+        } catch (SQLException e) {
+            Map<String, String> response = new HashMap<>();
+            response.put("error",
+                    "Error al listar los stored procedures de la base de datos '" + nombreBD + "': " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
 }

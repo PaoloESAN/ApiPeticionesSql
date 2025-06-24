@@ -307,4 +307,20 @@ public class BaseDatosService {
         return jsonResult.toString();
     }
 
+    public List<String> listarStoredProcedures(String nombreBD) throws SQLException {
+        List<String> procedures = new ArrayList<>();
+        String urlConBD = url + "databaseName=" + nombreBD + ";";
+        String sql = "SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_TYPE = 'PROCEDURE' ORDER BY ROUTINE_NAME";
+
+        try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                procedures.add(rs.getString("ROUTINE_NAME"));
+            }
+        }
+        return procedures;
+    }
+
 }
