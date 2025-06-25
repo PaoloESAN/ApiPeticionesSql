@@ -112,8 +112,7 @@ public class BaseDatosService {
 
     public List<ColumnaInfo> listarColumnas(String nombreBD, String nombreTabla) throws SQLException {
         List<ColumnaInfo> columnas = new ArrayList<>();
-        String urlConBD = url + "databaseName=" + nombreBD + ";"; // SQL para obtener información completa de las
-                                                                  // columnas
+        String urlConBD = url + "databaseName=" + nombreBD + ";";
         String sql = """
                 SELECT
                     c.COLUMN_NAME,
@@ -192,12 +191,10 @@ public class BaseDatosService {
         StringBuilder resultado = new StringBuilder();
         String urlConBD = url + "databaseName=" + nombreBD + ";";
 
-        // Título de la base de datos
         resultado.append("Nombre de la base de datos: ").append(nombreBD).append("\n\n");
 
         try (Connection conn = DriverManager.getConnection(urlConBD, user, password)) {
 
-            // Obtener tablas y sus columnas
             String sqlTablas = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME != 'sysdiagrams' ORDER BY TABLE_NAME";
 
             try (Statement stmtTablas = conn.createStatement();
@@ -210,7 +207,6 @@ public class BaseDatosService {
                     String nombreTabla = rsTablas.getString("TABLE_NAME");
                     resultado.append("• ").append(nombreTabla).append("\n");
 
-                    // Obtener columnas de cada tabla
                     String sqlColumnas = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? ORDER BY ORDINAL_POSITION";
                     try (PreparedStatement pstmtColumnas = conn.prepareStatement(sqlColumnas)) {
                         pstmtColumnas.setString(1, nombreTabla);
@@ -224,7 +220,6 @@ public class BaseDatosService {
                 }
             }
 
-            // Obtener vistas
             String sqlVistas = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS ORDER BY TABLE_NAME";
             try (Statement stmtVistas = conn.createStatement();
                     ResultSet rsVistas = stmtVistas.executeQuery(sqlVistas)) {
@@ -239,7 +234,26 @@ public class BaseDatosService {
                 }
 
                 if (!tieneVistas) {
-                    resultado.append("No hay vistas.\n");
+                    resultado.append("No hay vistas en esta base de datos.\n");
+                }
+                resultado.append("\n");
+            }
+
+            String sqlProcedures = "SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_TYPE = 'PROCEDURE' ORDER BY ROUTINE_NAME";
+            try (Statement stmtProcedures = conn.createStatement();
+                    ResultSet rsProcedures = stmtProcedures.executeQuery(sqlProcedures)) {
+
+                resultado.append("STORED PROCEDURES:\n");
+                resultado.append("==================\n");
+
+                boolean tieneProcedures = false;
+                while (rsProcedures.next()) {
+                    tieneProcedures = true;
+                    resultado.append("• ").append(rsProcedures.getString("ROUTINE_NAME")).append("\n");
+                }
+
+                if (!tieneProcedures) {
+                    resultado.append("No hay stored procedures en esta base de datos.\n");
                 }
             }
         }
@@ -248,7 +262,6 @@ public class BaseDatosService {
     }
 
     public String ejecutarSelect(String nombreBD, String sql) throws SQLException {
-        // Validar que solo sea una consulta SELECT
         String sqlTrimmed = sql.trim().toUpperCase();
         if (!sqlTrimmed.startsWith("SELECT")) {
             throw new SQLException("Solo se permiten consultas SELECT");
@@ -285,10 +298,8 @@ public class BaseDatosService {
                     if (value == null) {
                         jsonResult.append("null");
                     } else {
-                        // Escapar caracteres especiales en el valor
                         String escapedValue = value.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
 
-                        // Determinar si es número o string
                         String columnType = metaData.getColumnTypeName(i).toUpperCase();
                         if (columnType.contains("INT") || columnType.contains("DECIMAL") ||
                                 columnType.contains("FLOAT") || columnType.contains("NUMERIC") ||
