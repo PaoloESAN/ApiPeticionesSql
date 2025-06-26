@@ -6,8 +6,6 @@ import com.abd.peticionsql.model.DataWarehouseRequest;
 import com.abd.peticionsql.model.TableColumnInfo;
 import com.abd.peticionsql.model.WarehouseInfo;
 import com.abd.peticionsql.model.WarehouseQueryRequest;
-import com.abd.peticionsql.model.WarehouseInfo;
-import com.abd.peticionsql.model.WarehouseQueryRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +20,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class BaseDatosService {
@@ -414,33 +413,40 @@ public class BaseDatosService {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            // Validar que las tablas existan
-            for (DataWarehouseRequest.SelectedTable selectedTable : request.getSelectedTables()) {
-                String database = selectedTable.getDatabase();
-                String table = selectedTable.getTable();
+            // Validación de datos de entrada
+            if (request.getName() == null || request.getName().trim().isEmpty()) {
+                throw new SQLException("El nombre del Data Warehouse es requerido");
+            }
 
-                // Verificar que la base de datos existe
-                List<String> databases = listarBasesDatos();
-                if (!databases.contains(database)) {
-                    throw new SQLException("La base de datos '" + database + "' no existe");
-                }
+            // Agregar sufijo _warehouse si no lo tiene
+            String warehouseName = request.getName().trim();
+            if (!warehouseName.toLowerCase().endsWith("_warehouse")) {
+                warehouseName += "_warehouse";
+            }
 
-                // Verificar que la tabla existe
-                List<String> tables = listarTablas(database);
-                if (!tables.contains(table)) {
-                    throw new SQLException("La tabla '" + table + "' no existe en la base de datos '" + database + "'");
-                }
+            // Validar estructura de datos (puede ser estructura nueva o antigua)
+            if (request.getSelectedColumns() != null && !request.getSelectedColumns().isEmpty()) {
+                // Nueva estructura con selectedColumns
+                validateSelectedColumns(request.getSelectedColumns());
+            } else if (request.getSelectedTables() != null && !request.getSelectedTables().isEmpty()) {
+                // Estructura antigua con selectedTables
+                validateSelectedTables(request.getSelectedTables());
+            } else {
+                throw new SQLException("Debe especificar al menos una tabla o columnas para el Data Warehouse");
             }
 
             // Crear la base de datos del data warehouse
-            crearBaseDatos(request.getName());
+            crearBaseDatos(warehouseName);
 
-            // Aquí iría la lógica para crear las tablas y vistas en el data warehouse
-            // Por ahora solo simulamos el éxito
+            // Crear la tabla principal si se especifica tableName y selectedColumns
+            if (request.getTableName() != null && request.getSelectedColumns() != null
+                    && !request.getSelectedColumns().isEmpty()) {
+                createWarehouseTable(warehouseName, request.getTableName(), request.getSelectedColumns());
+            }
 
             response.put("success", true);
-            response.put("message", "Data Warehouse '" + request.getName() + "' creado exitosamente");
-            response.put("warehouseName", request.getName());
+            response.put("message", "Data Warehouse '" + warehouseName + "' creado exitosamente");
+            response.put("warehouseName", warehouseName);
 
         } catch (SQLException e) {
             response.put("success", false);
@@ -451,6 +457,144 @@ public class BaseDatosService {
         return response;
     }
 
+    private void validateSelectedColumns(List<DataWarehouseRequest.SelectedColumn> selectedColumns)
+            throws SQLException {
+        for (DataWarehouseRequest.SelectedColumn column : selectedColumns) {
+            if (column.getDatabase() == null || column.getDatabase().trim().isEmpty()) {
+                throw new SQLException("Todas las columnas deben especificar una base de datos");
+            }
+            if (column.getTable() == null || column.getTable().trim().isEmpty()) {
+                throw new SQLException("Todas las columnas deben especificar una tabla");
+            }
+            if (column.getColumn() == null || column.getColumn().trim().isEmpty()) {
+                throw new SQLException("Todas las columnas deben especificar un nombre de columna");
+            }
+
+            // Verificar que la base de datos existe
+            List<String> databases = listarBasesDatos();
+            if (!databases.contains(column.getDatabase())) {
+                throw new SQLException("La base de datos '" + column.getDatabase() + "' no existe");
+            }
+
+            // Verificar que la tabla existe
+            List<String> tables = listarTablas(column.getDatabase());
+            if (!tables.contains(column.getTable())) {
+                throw new SQLException("La tabla '" + column.getTable() + "' no existe en la base de datos '"
+                        + column.getDatabase() + "'");
+            }
+
+            // Verificar que la columna existe
+            List<TableColumnInfo> columns = obtenerColumnasDeTabla(column.getDatabase(), column.getTable());
+            boolean columnExists = columns.stream()
+                    .anyMatch(col -> col.getName().equals(column.getColumn()));
+            if (!columnExists) {
+                throw new SQLException(
+                        "La columna '" + column.getColumn() + "' no existe en la tabla '" + column.getTable() + "'");
+            }
+        }
+    }
+
+    private void validateSelectedTables(List<DataWarehouseRequest.SelectedTable> selectedTables) throws SQLException {
+        for (DataWarehouseRequest.SelectedTable selectedTable : selectedTables) {
+            String database = selectedTable.getDatabase();
+            String table = selectedTable.getTable();
+
+            // Verificar que la base de datos existe
+            List<String> databases = listarBasesDatos();
+            if (!databases.contains(database)) {
+                throw new SQLException("La base de datos '" + database + "' no existe");
+            }
+
+            // Verificar que la tabla existe
+            List<String> tables = listarTablas(database);
+            if (!tables.contains(table)) {
+                throw new SQLException("La tabla '" + table + "' no existe en la base de datos '" + database + "'");
+            }
+        }
+    }
+
+    private void createWarehouseTable(String warehouseName, String tableName,
+            List<DataWarehouseRequest.SelectedColumn> selectedColumns) throws SQLException {
+        StringBuilder createTableSQL = new StringBuilder();
+        createTableSQL.append("USE [").append(warehouseName).append("]; ");
+        createTableSQL.append("CREATE TABLE [").append(tableName).append("] (");
+
+        List<String> columnDefinitions = new ArrayList<>();
+
+        for (DataWarehouseRequest.SelectedColumn column : selectedColumns) {
+            // Obtener información de la columna original
+            List<TableColumnInfo> columnInfo = obtenerColumnasDeTabla(column.getDatabase(), column.getTable());
+            TableColumnInfo originalColumn = columnInfo.stream()
+                    .filter(col -> col.getName().equals(column.getColumn()))
+                    .findFirst()
+                    .orElseThrow(() -> new SQLException(
+                            "No se pudo obtener información de la columna: " + column.getColumn()));
+
+            String columnName = column.getAlias() != null && !column.getAlias().trim().isEmpty()
+                    ? column.getAlias()
+                    : column.getColumn();
+
+            String columnType = originalColumn.getType();
+            String nullable = "NULL"; // Por defecto permitir NULL
+
+            columnDefinitions.add("[" + columnName + "] " + columnType + " " + nullable);
+        }
+
+        createTableSQL.append(String.join(", ", columnDefinitions));
+        createTableSQL.append(");");
+
+        // Ejecutar la creación de la tabla
+        try (Connection connection = DriverManager.getConnection(url, user, password);
+                Statement statement = connection.createStatement()) {
+            statement.execute(createTableSQL.toString());
+        }
+
+        // Insertar datos en la tabla del warehouse
+        insertDataIntoWarehouseTable(warehouseName, tableName, selectedColumns);
+    }
+
+    private void insertDataIntoWarehouseTable(String warehouseName, String tableName,
+            List<DataWarehouseRequest.SelectedColumn> selectedColumns) throws SQLException {
+        // Agrupar columnas por base de datos y tabla origen
+        Map<String, List<DataWarehouseRequest.SelectedColumn>> groupedColumns = selectedColumns.stream()
+                .collect(Collectors.groupingBy(col -> col.getDatabase() + "." + col.getTable()));
+
+        for (Map.Entry<String, List<DataWarehouseRequest.SelectedColumn>> entry : groupedColumns.entrySet()) {
+            String[] dbTable = entry.getKey().split("\\.");
+            String sourceDatabase = dbTable[0];
+            String sourceTable = dbTable[1];
+            List<DataWarehouseRequest.SelectedColumn> columns = entry.getValue();
+
+            StringBuilder insertSQL = new StringBuilder();
+            insertSQL.append("USE [").append(warehouseName).append("]; ");
+            insertSQL.append("INSERT INTO [").append(tableName).append("] (");
+
+            // Nombres de columnas de destino
+            List<String> destColumns = columns.stream()
+                    .map(col -> "[" + (col.getAlias() != null && !col.getAlias().trim().isEmpty()
+                            ? col.getAlias()
+                            : col.getColumn()) + "]")
+                    .collect(Collectors.toList());
+
+            insertSQL.append(String.join(", ", destColumns));
+            insertSQL.append(") SELECT ");
+
+            // Nombres de columnas de origen
+            List<String> sourceColumns = columns.stream()
+                    .map(col -> "[" + col.getColumn() + "]")
+                    .collect(Collectors.toList());
+
+            insertSQL.append(String.join(", ", sourceColumns));
+            insertSQL.append(" FROM [").append(sourceDatabase).append("].[dbo].[").append(sourceTable).append("];");
+
+            // Ejecutar la inserción
+            try (Connection connection = DriverManager.getConnection(url, user, password);
+                    Statement statement = connection.createStatement()) {
+                statement.execute(insertSQL.toString());
+            }
+        }
+    }
+
     public List<WarehouseInfo> listarDataWarehouses() throws SQLException {
         List<WarehouseInfo> warehouses = new ArrayList<>();
 
@@ -458,11 +602,12 @@ public class BaseDatosService {
         List<String> databases = listarBasesDatos();
 
         for (String dbName : databases) {
-            try {
-                // Verificar si la base de datos tiene tablas (asumimos que es un warehouse si
-                // tiene tablas)
-                List<String> tables = listarTablas(dbName);
-                if (!tables.isEmpty()) {
+            // Solo considerar bases de datos que terminen con "_warehouse"
+            if (dbName.toLowerCase().endsWith("_warehouse")) {
+                try {
+                    // Verificar si la base de datos tiene tablas
+                    List<String> tables = listarTablas(dbName);
+
                     // Simular fecha de creación y estado
                     String created_date = "2024-12-25"; // En una implementación real, esto vendría de la base de datos
                     int table_count = tables.size();
@@ -470,10 +615,10 @@ public class BaseDatosService {
 
                     WarehouseInfo warehouse = new WarehouseInfo(dbName, created_date, table_count, status);
                     warehouses.add(warehouse);
+                } catch (SQLException e) {
+                    // Si hay error con una base de datos, continuar con las demás
+                    System.err.println("Error al verificar warehouse " + dbName + ": " + e.getMessage());
                 }
-            } catch (SQLException e) {
-                // Si hay error con una base de datos, continuar con las demás
-                System.err.println("Error al verificar warehouse " + dbName + ": " + e.getMessage());
             }
         }
 

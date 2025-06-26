@@ -4,8 +4,10 @@ import java.util.List;
 
 public class DataWarehouseRequest {
     private String name;
+    private String tableName;
     private List<SelectedTable> selectedTables;
     private List<Relationship> relationships;
+    private List<SelectedColumn> selectedColumns;
 
     public DataWarehouseRequest() {
     }
@@ -17,6 +19,14 @@ public class DataWarehouseRequest {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String getTableName() {
+        return tableName;
+    }
+
+    public void setTableName(String tableName) {
+        this.tableName = tableName;
     }
 
     public List<SelectedTable> getSelectedTables() {
@@ -33,6 +43,14 @@ public class DataWarehouseRequest {
 
     public void setRelationships(List<Relationship> relationships) {
         this.relationships = relationships;
+    }
+
+    public List<SelectedColumn> getSelectedColumns() {
+        return selectedColumns;
+    }
+
+    public void setSelectedColumns(List<SelectedColumn> selectedColumns) {
+        this.selectedColumns = selectedColumns;
     }
 
     public static class SelectedTable {
@@ -134,6 +152,58 @@ public class DataWarehouseRequest {
 
         public void setColumn(String column) {
             this.column = column;
+        }
+    }
+
+    public static class SelectedColumn {
+        private String database;
+        private String table;
+        private String column;
+        private String alias;
+        private String type;
+
+        public SelectedColumn() {
+        }
+
+        // Getters y Setters
+        public String getDatabase() {
+            return database;
+        }
+
+        public void setDatabase(String database) {
+            this.database = database;
+        }
+
+        public String getTable() {
+            return table;
+        }
+
+        public void setTable(String table) {
+            this.table = table;
+        }
+
+        public String getColumn() {
+            return column;
+        }
+
+        public void setColumn(String column) {
+            this.column = column;
+        }
+
+        public String getAlias() {
+            return alias;
+        }
+
+        public void setAlias(String alias) {
+            this.alias = alias;
+        }
+
+        public String getType() {
+            return type;
+        }
+
+        public void setType(String type) {
+            this.type = type;
         }
     }
 }

@@ -65,6 +65,24 @@ public class DataWarehouseController {
     @PostMapping("/create")
     public ResponseEntity<?> createDataWarehouse(@RequestBody DataWarehouseRequest request) {
         try {
+            // Log para debuggear la estructura recibida
+            System.out.println("=== DEBUG: Estructura recibida ===");
+            System.out.println("Name: " + request.getName());
+            System.out.println("TableName: " + request.getTableName());
+            System.out.println("SelectedTables: "
+                    + (request.getSelectedTables() != null ? request.getSelectedTables().size() : "null"));
+            System.out.println("SelectedColumns: "
+                    + (request.getSelectedColumns() != null ? request.getSelectedColumns().size() : "null"));
+            System.out.println("Relationships: "
+                    + (request.getRelationships() != null ? request.getRelationships().size() : "null"));
+
+            if (request.getSelectedColumns() != null) {
+                for (DataWarehouseRequest.SelectedColumn col : request.getSelectedColumns()) {
+                    System.out.println("Column: " + col.getDatabase() + "." + col.getTable() + "." + col.getColumn()
+                            + " -> " + col.getAlias());
+                }
+            }
+
             Map<String, Object> result = baseDatosService.crearDataWarehouse(request);
             if ((Boolean) result.get("success")) {
                 return ResponseEntity.ok(result);
@@ -72,6 +90,7 @@ public class DataWarehouseController {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
             }
         } catch (Exception e) {
+            e.printStackTrace(); // Imprimir el stack trace completo
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
             errorResponse.put("message", "Error al crear Data Warehouse: " + e.getMessage());
@@ -107,6 +126,26 @@ public class DataWarehouseController {
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
             errorResponse.put("message", "Error al eliminar Data Warehouse: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    @PostMapping("/test-structure")
+    public ResponseEntity<?> testStructure(@RequestBody Map<String, Object> rawRequest) {
+        try {
+            System.out.println("=== DEBUG: Raw JSON recibido ===");
+            System.out.println(rawRequest.toString());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("receivedKeys", rawRequest.keySet());
+            response.put("message", "Estructura recibida correctamente");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            e.printStackTrace();
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "Error al procesar estructura: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
