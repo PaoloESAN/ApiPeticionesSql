@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -120,6 +121,45 @@ public class DataWarehouseController {
     public ResponseEntity<?> deleteDataWarehouse(@RequestBody Map<String, String> request) {
         try {
             String warehouseName = request.get("name");
+            if (warehouseName == null || warehouseName.trim().isEmpty()) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("error", "El nombre del Data Warehouse es requerido");
+                errorResponse.put("code", "MISSING_NAME");
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+            }
+
+            Map<String, Object> result = baseDatosService.eliminarDataWarehouse(warehouseName.trim());
+            if ((Boolean) result.get("success")) {
+                Map<String, Object> successResponse = new HashMap<>();
+                successResponse.put("message", "Data Warehouse eliminado exitosamente");
+                successResponse.put("deletedDatabase", warehouseName.trim());
+                return ResponseEntity.ok(successResponse);
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
+            }
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+
+            // Detectar si es un error de base de datos en uso
+            if (e.getMessage().toLowerCase().contains("database is being used") ||
+                    e.getMessage().toLowerCase().contains("cannot drop") ||
+                    e.getMessage().toLowerCase().contains("in use")) {
+
+                errorResponse.put("error", "No se puede eliminar la base de datos porque está en uso");
+                errorResponse.put("code", "DATABASE_IN_USE");
+                errorResponse.put("suggestion", "Cierra todas las conexiones activas e intenta nuevamente");
+            } else {
+                errorResponse.put("error", "Error al eliminar Data Warehouse: " + e.getMessage());
+                errorResponse.put("code", "DELETION_ERROR");
+            }
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    @DeleteMapping("/delete/{warehouseName}")
+    public ResponseEntity<?> deleteDataWarehouseByPath(@PathVariable String warehouseName) {
+        try {
             if (warehouseName == null || warehouseName.trim().isEmpty()) {
                 Map<String, Object> errorResponse = new HashMap<>();
                 errorResponse.put("error", "El nombre del Data Warehouse es requerido");

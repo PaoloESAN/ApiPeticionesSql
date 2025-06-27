@@ -571,16 +571,13 @@ public class BaseDatosService {
                 return response;
             }
 
-            // Cerrar todas las conexiones activas a la base de datos antes de eliminarla
-            cerrarConexionesActivas(warehouseName);
-
-            // Eliminar la base de datos (sin volver a cerrar conexiones)
-            eliminarBaseDatosConForzado(warehouseName, false);
+            // Eliminación forzada directa
+            eliminarWarehouseForzadoDirecto(warehouseName);
 
             response.put("success", true);
             response.put("message", "Data Warehouse '" + warehouseName + "' eliminado exitosamente");
 
-        } catch (SQLException e) {
+        } catch (Exception e) {
             response.put("success", false);
             response.put("message", "Error al eliminar Data Warehouse: " + e.getMessage());
         }
@@ -589,19 +586,14 @@ public class BaseDatosService {
     }
 
     private void cerrarConexionesActivas(String nombreBD) throws SQLException {
-        // Primer comando: poner la base de datos en modo SINGLE_USER para cerrar todas
-        // las conexiones
-        String setSingleUser = "ALTER DATABASE [" + nombreBD + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE";
-        // Segundo comando: volver a modo MULTI_USER
-        String setMultiUser = "ALTER DATABASE [" + nombreBD + "] SET MULTI_USER";
-
+        // Método simplificado para otros usos si es necesario
         try (Connection conn = DriverManager.getConnection(url, user, password);
                 Statement stmt = conn.createStatement()) {
 
-            // Ejecutar comando para cerrar conexiones (modo SINGLE_USER)
+            String setSingleUser = "ALTER DATABASE [" + nombreBD + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE";
             stmt.executeUpdate(setSingleUser);
 
-            // Volver a modo MULTI_USER para que se pueda eliminar
+            String setMultiUser = "ALTER DATABASE [" + nombreBD + "] SET MULTI_USER";
             stmt.executeUpdate(setMultiUser);
         }
     }
@@ -951,5 +943,27 @@ public class BaseDatosService {
         }
 
         return warehouses;
+    }
+
+    private void eliminarWarehouseForzadoDirecto(String nombreBD) throws SQLException {
+        try (Connection conn = DriverManager.getConnection(url, user, password);
+                Statement stmt = conn.createStatement()) {
+
+            // Comando SQL todo en uno para forzar eliminación
+            String sqlForzado = String.format("""
+                    -- Matar todas las conexiones activas
+                    DECLARE @sql NVARCHAR(MAX) = '';
+                    SELECT @sql = @sql + 'KILL ' + CAST(session_id AS NVARCHAR(10)) + '; '
+                    FROM sys.dm_exec_sessions
+                    WHERE database_id = DB_ID('%s') AND session_id != @@SPID;
+                    EXEC sp_executesql @sql;
+
+                    -- Poner en modo SINGLE_USER y eliminar inmediatamente
+                    ALTER DATABASE [%s] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                    DROP DATABASE [%s];
+                    """, nombreBD, nombreBD, nombreBD);
+
+            stmt.execute(sqlForzado);
+        }
     }
 }
