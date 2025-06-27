@@ -65,7 +65,6 @@ public class DataWarehouseController {
     @PostMapping("/create")
     public ResponseEntity<?> createDataWarehouse(@RequestBody DataWarehouseRequest request) {
         try {
-            // Log para debuggear la estructura recibida
             System.out.println("=== DEBUG: Estructura recibida ===");
             System.out.println("Name: " + request.getName());
             System.out.println("TableName: " + request.getTableName());
@@ -85,15 +84,13 @@ public class DataWarehouseController {
 
             Map<String, Object> result = baseDatosService.crearDataWarehouse(request);
 
-            // La nueva respuesta ya no tiene campo "success", sino que se determina por la
-            // presencia de "warehouseName"
             if (result.get("warehouseName") != null) {
                 return ResponseEntity.ok(result);
             } else {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
             }
         } catch (Exception e) {
-            e.printStackTrace(); // Imprimir el stack trace completo
+            e.printStackTrace();
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("warehouseName", null);
             errorResponse.put("message", "Error al crear Data Warehouse: " + e.getMessage());
@@ -178,8 +175,6 @@ public class DataWarehouseController {
             }
         } catch (Exception e) {
             Map<String, Object> errorResponse = new HashMap<>();
-
-            // Detectar si es un error de base de datos en uso
             if (e.getMessage().toLowerCase().contains("database is being used") ||
                     e.getMessage().toLowerCase().contains("cannot drop") ||
                     e.getMessage().toLowerCase().contains("in use")) {

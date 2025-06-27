@@ -5,10 +5,9 @@ import java.util.List;
 public class DataMartRequest {
     private String name;
     private String sourceWarehouse;
-    private String sourceTable; // Nueva propiedad para especificar la tabla origen
+    private String sourceTable;
     private List<SelectedColumn> selectedColumns;
 
-    // Constructors
     public DataMartRequest() {
     }
 
@@ -26,7 +25,6 @@ public class DataMartRequest {
         this.selectedColumns = selectedColumns;
     }
 
-    // Getters and Setters
     public String getName() {
         return name;
     }
@@ -59,13 +57,11 @@ public class DataMartRequest {
         this.selectedColumns = selectedColumns;
     }
 
-    // Inner class for selected columns
     public static class SelectedColumn {
         private String name;
         private String type;
         private String alias;
 
-        // Constructors
         public SelectedColumn() {
         }
 
@@ -75,7 +71,6 @@ public class DataMartRequest {
             this.alias = alias;
         }
 
-        // Getters and Setters
         public String getName() {
             return name;
         }

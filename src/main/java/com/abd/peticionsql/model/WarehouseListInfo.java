@@ -14,7 +14,6 @@ public class WarehouseListInfo {
         this.tables = tables;
     }
 
-    // Getters y Setters
     public String getName() {
         return name;
     }

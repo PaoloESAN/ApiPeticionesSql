@@ -49,7 +49,6 @@ public class BaseDatosService {
 
     private void eliminarBaseDatosConForzado(String nombreBD, boolean cerrarConexiones) throws SQLException {
         if (cerrarConexiones) {
-            // Cerrar todas las conexiones activas antes de eliminar
             cerrarConexionesActivas(nombreBD);
         }
 
@@ -101,7 +100,7 @@ public class BaseDatosService {
 
     public List<String> listarBasesDatos() throws SQLException {
         List<String> databases = new ArrayList<>();
-        String sql = "SELECT name FROM sys.databases WHERE database_id > 4"; // Excluye bases de datos del sistema
+        String sql = "SELECT name FROM sys.databases WHERE database_id > 4";
 
         try (Connection conn = DriverManager.getConnection(url, user, password);
                 Statement stmt = conn.createStatement();
@@ -363,7 +362,7 @@ public class BaseDatosService {
         for (String dbName : databaseNames) {
             // Excluir bases de datos que terminen en "_warehouse"
             if (dbName.toLowerCase().endsWith("_warehouse")) {
-                continue; // Saltar esta base de datos
+                continue;
             }
 
             try {
@@ -371,7 +370,6 @@ public class BaseDatosService {
                 DatabaseInfo dbInfo = new DatabaseInfo(dbName, tables);
                 databases.add(dbInfo);
             } catch (SQLException e) {
-                // Si hay error con una base de datos, continuar con las demás
                 System.err.println("Error al obtener tablas de la base de datos " + dbName + ": " + e.getMessage());
             }
         }
@@ -443,39 +441,29 @@ public class BaseDatosService {
                 throw new SQLException("Debe especificar al menos una columna para el Data Warehouse");
             }
 
-            // Preparar nombre del warehouse
             warehouseName = request.getName().trim();
             if (!warehouseName.toLowerCase().endsWith("_warehouse")) {
                 warehouseName += "_warehouse";
             }
 
-            // Verificar que no exista ya una base de datos con ese nombre
             List<String> existingDatabases = listarBasesDatos();
             if (existingDatabases.contains(warehouseName)) {
                 throw new SQLException("Ya existe una base de datos con el nombre '" + warehouseName + "'");
             }
 
-            // Validar que todas las bases de datos, tablas y columnas existan ANTES de
-            // crear la base de datos
             validateSelectedColumns(request.getSelectedColumns());
 
-            // Si hay relaciones, validarlas también ANTES de crear la base de datos
             if (request.getRelationships() != null && !request.getRelationships().isEmpty()) {
                 validateRelationships(request.getRelationships());
             }
 
-            // Generar SQL dinámico ANTES de crear la base de datos para validar que se
-            // puede generar
             String generatedSQL = generateDynamicSQL(warehouseName, request);
 
-            // Solo si todas las validaciones pasan, crear la base de datos
             crearBaseDatos(warehouseName);
             databaseCreated = true;
 
-            // Ejecutar el SQL generado
             executeSQL(generatedSQL);
 
-            // Preparar respuesta exitosa
             Map<String, Object> details = new HashMap<>();
             details.put("tablesProcessed",
                     request.getSelectedTables() != null ? request.getSelectedTables().size() : 0);
@@ -489,7 +477,6 @@ public class BaseDatosService {
             response.put("details", details);
 
         } catch (SQLException e) {
-            // Si ocurrió un error y ya se creó la base de datos, la eliminamos (rollback)
             if (databaseCreated && warehouseName != null) {
                 try {
                     System.out.println("Realizando rollback: eliminando base de datos creada '" + warehouseName + "'");
@@ -498,7 +485,6 @@ public class BaseDatosService {
                 } catch (SQLException rollbackException) {
                     System.err.println("Error durante rollback al eliminar base de datos '" + warehouseName + "': "
                             + rollbackException.getMessage());
-                    // No relanzamos la excepción de rollback, mantenemos la original
                 }
             }
 
@@ -524,20 +510,17 @@ public class BaseDatosService {
                 throw new SQLException("Todas las columnas deben especificar un nombre de columna");
             }
 
-            // Verificar que la base de datos existe
             List<String> databases = listarBasesDatos();
             if (!databases.contains(column.getDatabase())) {
                 throw new SQLException("La base de datos '" + column.getDatabase() + "' no existe");
             }
 
-            // Verificar que la tabla existe
             List<String> tables = listarTablas(column.getDatabase());
             if (!tables.contains(column.getTable())) {
                 throw new SQLException("La tabla '" + column.getTable() + "' no existe en la base de datos '"
                         + column.getDatabase() + "'");
             }
 
-            // Verificar que la columna existe
             List<TableColumnInfo> columns = obtenerColumnasDeTabla(column.getDatabase(), column.getTable());
             boolean columnExists = columns.stream()
                     .anyMatch(col -> col.getName().equals(column.getColumn()));
@@ -551,25 +534,20 @@ public class BaseDatosService {
     public List<WarehouseInfo> listarDataWarehouses() throws SQLException {
         List<WarehouseInfo> warehouses = new ArrayList<>();
 
-        // Obtener todas las bases de datos que podrían ser data warehouses
         List<String> databases = listarBasesDatos();
 
         for (String dbName : databases) {
-            // Solo considerar bases de datos que terminen con "_warehouse"
             if (dbName.toLowerCase().endsWith("_warehouse")) {
                 try {
-                    // Verificar si la base de datos tiene tablas
                     List<String> tables = listarTablas(dbName);
 
-                    // Simular fecha de creación y estado
-                    String created_date = "2024-12-25"; // En una implementación real, esto vendría de la base de datos
+                    String created_date = "2024-12-25";
                     int table_count = tables.size();
                     String status = "Activo";
 
                     WarehouseInfo warehouse = new WarehouseInfo(dbName, created_date, table_count, status);
                     warehouses.add(warehouse);
                 } catch (SQLException e) {
-                    // Si hay error con una base de datos, continuar con las demás
                     System.err.println("Error al verificar warehouse " + dbName + ": " + e.getMessage());
                 }
             }
@@ -582,7 +560,6 @@ public class BaseDatosService {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            // Verificar que el warehouse existe
             List<String> databases = listarBasesDatos();
             if (!databases.contains(warehouseName)) {
                 response.put("success", false);
@@ -590,7 +567,6 @@ public class BaseDatosService {
                 return response;
             }
 
-            // Eliminación forzada directa
             eliminarWarehouseForzadoDirecto(warehouseName);
 
             response.put("success", true);
@@ -605,7 +581,6 @@ public class BaseDatosService {
     }
 
     private void cerrarConexionesActivas(String nombreBD) throws SQLException {
-        // Método simplificado para otros usos si es necesario
         try (Connection conn = DriverManager.getConnection(url, user, password);
                 Statement stmt = conn.createStatement()) {
 
@@ -618,7 +593,6 @@ public class BaseDatosService {
     }
 
     public Map<String, Object> ejecutarConsultaWarehouse(WarehouseQueryRequest request) throws SQLException {
-        // Validar que el warehouse existe
         List<String> databases = listarBasesDatos();
         String databaseName = request.getDatabase() != null ? request.getDatabase() : request.getWarehouse();
 
@@ -626,7 +600,6 @@ public class BaseDatosService {
             throw new SQLException("El Data Warehouse '" + databaseName + "' no existe");
         }
 
-        // Ejecutar la consulta y obtener resultados estructurados
         return ejecutarSelectEstructurado(databaseName, request.getQuery());
     }
 
@@ -647,12 +620,10 @@ public class BaseDatosService {
             ResultSetMetaData metaData = rs.getMetaData();
             int columnCount = metaData.getColumnCount();
 
-            // Obtener nombres de columnas
             for (int i = 1; i <= columnCount; i++) {
                 columns.add(metaData.getColumnName(i));
             }
 
-            // Obtener filas
             while (rs.next()) {
                 List<Object> row = new ArrayList<>();
                 for (int i = 1; i <= columnCount; i++) {
@@ -663,7 +634,6 @@ public class BaseDatosService {
             }
         }
 
-        // Preparar respuesta
         Map<String, Object> response = new HashMap<>();
         response.put("columns", columns);
         response.put("rows", rows);
@@ -681,7 +651,6 @@ public class BaseDatosService {
                 throw new SQLException("Las relaciones deben especificar un tipo (INNER_JOIN, LEFT_JOIN, etc.)");
             }
 
-            // Validar que las tablas y columnas de la relación existan
             validateTableReference(relationship.getTable1());
             validateTableReference(relationship.getTable2());
         }
@@ -698,20 +667,17 @@ public class BaseDatosService {
             throw new SQLException("La referencia de tabla debe especificar una columna");
         }
 
-        // Verificar que la base de datos existe
         List<String> databases = listarBasesDatos();
         if (!databases.contains(tableRef.getDatabase())) {
             throw new SQLException("La base de datos '" + tableRef.getDatabase() + "' no existe");
         }
 
-        // Verificar que la tabla existe
         List<String> tables = listarTablas(tableRef.getDatabase());
         if (!tables.contains(tableRef.getTable())) {
             throw new SQLException("La tabla '" + tableRef.getTable() + "' no existe en la base de datos '"
                     + tableRef.getDatabase() + "'");
         }
 
-        // Verificar que la columna existe
         List<TableColumnInfo> columns = obtenerColumnasDeTabla(tableRef.getDatabase(), tableRef.getTable());
         boolean columnExists = columns.stream()
                 .anyMatch(col -> col.getName().equals(tableRef.getColumn()));
@@ -725,16 +691,12 @@ public class BaseDatosService {
         StringBuilder sql = new StringBuilder();
 
         try {
-            // Usar el warehouse como contexto
             sql.append("USE [").append(warehouseName).append("]; ");
 
-            // Validar y obtener las tablas que participan en la consulta
             Map<String, String> tableAliasMap = buildTableAliasMap(request);
 
-            // Crear la tabla con CREATE TABLE AS SELECT
             sql.append("SELECT ");
 
-            // Agregar columnas seleccionadas con validación
             List<String> selectColumns = new ArrayList<>();
             for (DataWarehouseRequest.SelectedColumn column : request.getSelectedColumns()) {
                 String tableKey = column.getDatabase() + "." + column.getTable();
@@ -748,7 +710,6 @@ public class BaseDatosService {
                         ? column.getAlias()
                         : column.getColumn();
 
-                // Validar que la columna existe en la tabla
                 validateColumnExists(column.getDatabase(), column.getTable(), column.getColumn());
 
                 selectColumns.add(tableAlias + ".[" + column.getColumn() + "] AS [" + columnAlias + "]");
@@ -756,10 +717,8 @@ public class BaseDatosService {
 
             sql.append(String.join(", ", selectColumns));
 
-            // Agregar INTO clause para crear la tabla
             sql.append(" INTO [").append(request.getTableName()).append("] ");
 
-            // Construir FROM y JOINs de manera ordenada
             String fromAndJoins = buildFromAndJoins(request, tableAliasMap);
             sql.append(fromAndJoins);
 
@@ -775,7 +734,6 @@ public class BaseDatosService {
     private Map<String, String> buildTableAliasMap(DataWarehouseRequest request) {
         Map<String, String> aliasMap = new HashMap<>();
 
-        // Primero agregar tablas de selectedTables con sus alias
         if (request.getSelectedTables() != null) {
             for (DataWarehouseRequest.SelectedTable selectedTable : request.getSelectedTables()) {
                 String tableKey = selectedTable.getDatabase() + "." + selectedTable.getTable();
@@ -786,7 +744,6 @@ public class BaseDatosService {
             }
         }
 
-        // Agregar tablas de selectedColumns que no estén ya mapeadas
         for (DataWarehouseRequest.SelectedColumn column : request.getSelectedColumns()) {
             String tableKey = column.getDatabase() + "." + column.getTable();
             if (!aliasMap.containsKey(tableKey)) {
@@ -811,7 +768,6 @@ public class BaseDatosService {
             throws SQLException {
         StringBuilder fromClause = new StringBuilder();
 
-        // Determinar tabla principal (primera tabla que aparece en selectedColumns)
         DataWarehouseRequest.SelectedColumn firstColumn = request.getSelectedColumns().get(0);
         String mainTableKey = firstColumn.getDatabase() + "." + firstColumn.getTable();
         String mainAlias = tableAliasMap.get(mainTableKey);
@@ -819,12 +775,10 @@ public class BaseDatosService {
         fromClause.append("FROM [").append(firstColumn.getDatabase()).append("].[dbo].[")
                 .append(firstColumn.getTable()).append("] ").append(mainAlias);
 
-        // Procesar JOINs si hay relaciones
         if (request.getRelationships() != null && !request.getRelationships().isEmpty()) {
             Set<String> joinedTables = new HashSet<>();
             joinedTables.add(mainTableKey);
 
-            // Procesar relaciones en orden para construir JOINs correctamente
             for (DataWarehouseRequest.Relationship relationship : request.getRelationships()) {
                 String joinType = mapJoinType(relationship.getType());
 
@@ -834,13 +788,10 @@ public class BaseDatosService {
                 String table1Key = table1.getDatabase() + "." + table1.getTable();
                 String table2Key = table2.getDatabase() + "." + table2.getTable();
 
-                // Validar compatibilidad de tipos de columnas para el JOIN
                 validateJoinCompatibility(table1, table2);
 
-                // Determinar cuál tabla unir basándose en las ya incluidas
                 String joinCondition;
                 if (joinedTables.contains(table1Key)) {
-                    // Unir table2
                     String joinAlias = tableAliasMap.get(table2Key);
                     joinCondition = tableAliasMap.get(table1Key) + ".[" + table1.getColumn() + "] = "
                             + joinAlias + ".[" + table2.getColumn() + "]";
@@ -869,7 +820,6 @@ public class BaseDatosService {
 
     private void validateJoinCompatibility(DataWarehouseRequest.TableRef table1, DataWarehouseRequest.TableRef table2)
             throws SQLException {
-        // Obtener información de las columnas para validar compatibilidad
         List<TableColumnInfo> columns1 = obtenerColumnasDeTabla(table1.getDatabase(), table1.getTable());
         List<TableColumnInfo> columns2 = obtenerColumnasDeTabla(table2.getDatabase(), table2.getTable());
 
@@ -885,15 +835,12 @@ public class BaseDatosService {
                 .orElseThrow(() -> new SQLException(
                         "Columna '" + table2.getColumn() + "' no encontrada en tabla " + table2.getTable()));
 
-        // Validación básica de tipos (puedes expandir esto según necesidades)
         String type1 = col1.getType().toUpperCase();
         String type2 = col2.getType().toUpperCase();
 
-        // Extraer tipo base (sin longitud/precisión)
         String baseType1 = type1.split("\\(")[0].trim();
         String baseType2 = type2.split("\\(")[0].trim();
 
-        // Lista de tipos compatibles
         Set<String> numericTypes = Set.of("INT", "BIGINT", "SMALLINT", "TINYINT", "DECIMAL", "NUMERIC", "FLOAT",
                 "REAL");
         Set<String> stringTypes = Set.of("VARCHAR", "NVARCHAR", "CHAR", "NCHAR", "TEXT", "NTEXT");
@@ -901,13 +848,13 @@ public class BaseDatosService {
 
         boolean compatible = false;
         if (baseType1.equals(baseType2)) {
-            compatible = true; // Mismos tipos son compatibles
+            compatible = true;
         } else if (numericTypes.contains(baseType1) && numericTypes.contains(baseType2)) {
-            compatible = true; // Tipos numéricos son compatibles entre sí
+            compatible = true;
         } else if (stringTypes.contains(baseType1) && stringTypes.contains(baseType2)) {
-            compatible = true; // Tipos de cadena son compatibles entre sí
+            compatible = true;
         } else if (dateTypes.contains(baseType1) && dateTypes.contains(baseType2)) {
-            compatible = true; // Tipos de fecha son compatibles entre sí
+            compatible = true;
         }
 
         if (!compatible) {
@@ -928,7 +875,7 @@ public class BaseDatosService {
             case "FULL_JOIN":
                 return "FULL OUTER JOIN";
             default:
-                return "INNER JOIN"; // Por defecto
+                return "INNER JOIN";
         }
     }
 
@@ -942,20 +889,18 @@ public class BaseDatosService {
     public List<WarehouseListInfo> listarDataWarehousesConTablas() throws SQLException {
         List<WarehouseListInfo> warehouses = new ArrayList<>();
 
-        // Obtener todas las bases de datos que podrían ser data warehouses
         List<String> databases = listarBasesDatos();
 
         for (String dbName : databases) {
-            // Solo considerar bases de datos que terminen con "_warehouse"
             if (dbName.toLowerCase().endsWith("_warehouse")) {
                 try {
-                    // Obtener las tablas de la base de datos
+
                     List<String> tables = listarTablas(dbName);
 
                     WarehouseListInfo warehouse = new WarehouseListInfo(dbName, tables);
                     warehouses.add(warehouse);
                 } catch (SQLException e) {
-                    // Si hay error con una base de datos, continuar con las demás
+
                     System.err.println("Error al obtener tablas del warehouse " + dbName + ": " + e.getMessage());
                 }
             }
@@ -968,7 +913,6 @@ public class BaseDatosService {
         try (Connection conn = DriverManager.getConnection(url, user, password);
                 Statement stmt = conn.createStatement()) {
 
-            // Comando SQL todo en uno para forzar eliminación
             String sqlForzado = String.format("""
                     -- Matar todas las conexiones activas
                     DECLARE @sql NVARCHAR(MAX) = '';
@@ -989,7 +933,6 @@ public class BaseDatosService {
     public List<Map<String, Object>> obtenerColumnasDeWarehouse(String warehouseName) throws SQLException {
         List<Map<String, Object>> allColumns = new ArrayList<>();
 
-        // Verificar que el warehouse existe
         List<String> databases = listarBasesDatos();
         if (!databases.contains(warehouseName)) {
             throw new SQLException("El Data Warehouse '" + warehouseName + "' no existe");
@@ -1046,7 +989,7 @@ public class BaseDatosService {
         long startTime = System.currentTimeMillis();
 
         try {
-            // Validación de datos de entrada
+
             if (request.getName() == null || request.getName().trim().isEmpty()) {
                 throw new SQLException("El nombre del Data Mart es requerido");
             }
@@ -1060,7 +1003,6 @@ public class BaseDatosService {
             String dataMartName = request.getName().trim();
             String sourceWarehouse = request.getSourceWarehouse().trim();
 
-            // Verificar que el warehouse de origen existe
             List<String> databases = listarBasesDatos();
             if (!databases.contains(sourceWarehouse)) {
                 throw new SQLException("El warehouse de origen '" + sourceWarehouse + "' no existe");
@@ -1069,21 +1011,16 @@ public class BaseDatosService {
             // Determinar tabla origen
             String sourceTable = determineSourceTable(sourceWarehouse, request);
 
-            // Verificar que las columnas existen en la tabla origen específica
             validateDataMartColumnsInTable(sourceWarehouse, sourceTable, request.getSelectedColumns());
 
-            // Generar SQL para crear el data mart
             String generatedSQL = generateDataMartSQL(dataMartName, sourceWarehouse, sourceTable,
                     request.getSelectedColumns());
 
-            // Ejecutar el SQL en el warehouse de origen
             int rowsAffected = executeDataMartSQL(sourceWarehouse, generatedSQL);
 
-            // Calcular tiempo de ejecución
             long endTime = System.currentTimeMillis();
             double executionTime = (endTime - startTime) / 1000.0;
 
-            // Preparar respuesta exitosa
             Map<String, Object> details = new HashMap<>();
             details.put("rowsAffected", rowsAffected);
             details.put("columnsCreated", request.getSelectedColumns().size());
@@ -1111,7 +1048,7 @@ public class BaseDatosService {
     private void validateDataMartColumnsInTable(String warehouse, String table,
             List<DataMartRequest.SelectedColumn> selectedColumns)
             throws SQLException {
-        // Obtener todas las columnas de la tabla específica
+
         List<TableColumnInfo> tableColumns = obtenerColumnasDeTabla(warehouse, table);
 
         for (DataMartRequest.SelectedColumn selectedCol : selectedColumns) {
@@ -1127,7 +1064,7 @@ public class BaseDatosService {
     }
 
     private String determineSourceTable(String warehouse, DataMartRequest request) throws SQLException {
-        // Si se especifica una tabla origen, la usamos
+
         if (request.getSourceTable() != null && !request.getSourceTable().trim().isEmpty()) {
             String sourceTable = request.getSourceTable().trim();
 
@@ -1141,14 +1078,12 @@ public class BaseDatosService {
             return sourceTable;
         }
 
-        // Si no se especifica, buscar automáticamente una tabla apropiada
         List<String> tables = listarTablas(warehouse);
 
         if (tables.isEmpty()) {
             throw new SQLException("El warehouse '" + warehouse + "' no tiene tablas disponibles");
         }
 
-        // Priorizar tablas con nombres comunes de warehouse
         String[] priorityNames = { "datos_consolidados", "warehouse_data", "consolidated_data", "main_data", "data" };
 
         for (String priorityName : priorityNames) {
@@ -1157,11 +1092,8 @@ public class BaseDatosService {
             }
         }
 
-        // Si no encuentra ninguna tabla prioritaria, usar la primera tabla disponible
         String selectedTable = tables.get(0);
 
-        // Si hay múltiples tablas y ninguna tiene un nombre prioritario, sugerir
-        // especificar la tabla
         if (tables.size() > 1) {
             throw new SQLException("El warehouse '" + warehouse + "' tiene múltiples tablas (" +
                     String.join(", ", tables) + "). Por favor, especifique la tabla origen en el campo 'sourceTable'.");
@@ -1174,7 +1106,6 @@ public class BaseDatosService {
             List<DataMartRequest.SelectedColumn> selectedColumns) {
         StringBuilder sql = new StringBuilder();
 
-        // Construir SELECT con alias
         sql.append("SELECT ");
         List<String> selectColumns = new ArrayList<>();
 

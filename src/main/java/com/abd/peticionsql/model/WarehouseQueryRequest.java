@@ -12,7 +12,6 @@ public class WarehouseQueryRequest {
         this.query = query;
     }
 
-    // Getters y Setters
     public String getDatabase() {
         return database;
     }
@@ -29,7 +28,6 @@ public class WarehouseQueryRequest {
         this.query = query;
     }
 
-    // Mantener compatibilidad con versión anterior
     public String getWarehouse() {
         return database;
     }
