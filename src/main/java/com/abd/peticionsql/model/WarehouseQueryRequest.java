@@ -1,24 +1,24 @@
 package com.abd.peticionsql.model;
 
 public class WarehouseQueryRequest {
-    private String warehouse;
+    private String database;
     private String query;
 
     public WarehouseQueryRequest() {
     }
 
-    public WarehouseQueryRequest(String warehouse, String query) {
-        this.warehouse = warehouse;
+    public WarehouseQueryRequest(String database, String query) {
+        this.database = database;
         this.query = query;
     }
 
     // Getters y Setters
-    public String getWarehouse() {
-        return warehouse;
+    public String getDatabase() {
+        return database;
     }
 
-    public void setWarehouse(String warehouse) {
-        this.warehouse = warehouse;
+    public void setDatabase(String database) {
+        this.database = database;
     }
 
     public String getQuery() {
@@ -27,5 +27,14 @@ public class WarehouseQueryRequest {
 
     public void setQuery(String query) {
         this.query = query;
+    }
+
+    // Mantener compatibilidad con versión anterior
+    public String getWarehouse() {
+        return database;
+    }
+
+    public void setWarehouse(String warehouse) {
+        this.database = warehouse;
     }
 }

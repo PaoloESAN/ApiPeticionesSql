@@ -5,6 +5,7 @@ import com.abd.peticionsql.model.DatabaseInfo;
 import com.abd.peticionsql.model.DataWarehouseRequest;
 import com.abd.peticionsql.model.TableColumnInfo;
 import com.abd.peticionsql.model.WarehouseInfo;
+import com.abd.peticionsql.model.WarehouseListInfo;
 import com.abd.peticionsql.model.WarehouseQueryRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -18,9 +19,10 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 @Service
 public class BaseDatosService {
@@ -41,6 +43,15 @@ public class BaseDatosService {
     }
 
     public void eliminarBaseDatos(String nombreBD) throws SQLException {
+        eliminarBaseDatosConForzado(nombreBD, true);
+    }
+
+    private void eliminarBaseDatosConForzado(String nombreBD, boolean cerrarConexiones) throws SQLException {
+        if (cerrarConexiones) {
+            // Cerrar todas las conexiones activas antes de eliminar
+            cerrarConexionesActivas(nombreBD);
+        }
+
         String sql = "DROP DATABASE [" + nombreBD + "]";
         try (Connection conn = DriverManager.getConnection(url, user, password);
                 Statement stmt = conn.createStatement()) {
@@ -349,6 +360,11 @@ public class BaseDatosService {
         List<String> databaseNames = listarBasesDatos();
 
         for (String dbName : databaseNames) {
+            // Excluir bases de datos que terminen en "_warehouse"
+            if (dbName.toLowerCase().endsWith("_warehouse")) {
+                continue; // Saltar esta base de datos
+            }
+
             try {
                 List<String> tables = listarTablas(dbName);
                 DatabaseInfo dbInfo = new DatabaseInfo(dbName, tables);
@@ -417,41 +433,60 @@ public class BaseDatosService {
             if (request.getName() == null || request.getName().trim().isEmpty()) {
                 throw new SQLException("El nombre del Data Warehouse es requerido");
             }
+            if (request.getTableName() == null || request.getTableName().trim().isEmpty()) {
+                throw new SQLException("El nombre de la tabla es requerido");
+            }
+            if (request.getSelectedColumns() == null || request.getSelectedColumns().isEmpty()) {
+                throw new SQLException("Debe especificar al menos una columna para el Data Warehouse");
+            }
 
-            // Agregar sufijo _warehouse si no lo tiene
+            // Preparar nombre del warehouse
             String warehouseName = request.getName().trim();
             if (!warehouseName.toLowerCase().endsWith("_warehouse")) {
                 warehouseName += "_warehouse";
             }
 
-            // Validar estructura de datos (puede ser estructura nueva o antigua)
-            if (request.getSelectedColumns() != null && !request.getSelectedColumns().isEmpty()) {
-                // Nueva estructura con selectedColumns
-                validateSelectedColumns(request.getSelectedColumns());
-            } else if (request.getSelectedTables() != null && !request.getSelectedTables().isEmpty()) {
-                // Estructura antigua con selectedTables
-                validateSelectedTables(request.getSelectedTables());
-            } else {
-                throw new SQLException("Debe especificar al menos una tabla o columnas para el Data Warehouse");
+            // Verificar que no exista ya una base de datos con ese nombre
+            List<String> existingDatabases = listarBasesDatos();
+            if (existingDatabases.contains(warehouseName)) {
+                throw new SQLException("Ya existe una base de datos con el nombre '" + warehouseName + "'");
             }
 
-            // Crear la base de datos del data warehouse
+            // Validar que todas las bases de datos, tablas y columnas existan
+            validateSelectedColumns(request.getSelectedColumns());
+
+            // Si hay relaciones, validarlas también
+            if (request.getRelationships() != null && !request.getRelationships().isEmpty()) {
+                validateRelationships(request.getRelationships());
+            }
+
+            // Crear la base de datos del warehouse
             crearBaseDatos(warehouseName);
 
-            // Crear la tabla principal si se especifica tableName y selectedColumns
-            if (request.getTableName() != null && request.getSelectedColumns() != null
-                    && !request.getSelectedColumns().isEmpty()) {
-                createWarehouseTable(warehouseName, request.getTableName(), request.getSelectedColumns());
-            }
+            // Generar y ejecutar SQL dinámico
+            String generatedSQL = generateDynamicSQL(warehouseName, request);
 
-            response.put("success", true);
-            response.put("message", "Data Warehouse '" + warehouseName + "' creado exitosamente");
+            // Ejecutar el SQL generado
+            executeSQL(generatedSQL);
+
+            // Preparar respuesta exitosa
+            Map<String, Object> details = new HashMap<>();
+            details.put("tablesProcessed",
+                    request.getSelectedTables() != null ? request.getSelectedTables().size() : 0);
+            details.put("columnsCreated", request.getSelectedColumns().size());
+            details.put("relationshipsApplied",
+                    request.getRelationships() != null ? request.getRelationships().size() : 0);
+
             response.put("warehouseName", warehouseName);
+            response.put("message", "Data Warehouse creado exitosamente");
+            response.put("sql", generatedSQL);
+            response.put("details", details);
 
         } catch (SQLException e) {
-            response.put("success", false);
-            response.put("message", "Error al crear Data Warehouse: " + e.getMessage());
             response.put("warehouseName", null);
+            response.put("message", "Error al crear Data Warehouse: " + e.getMessage());
+            response.put("sql", null);
+            response.put("details", null);
         }
 
         return response;
@@ -490,107 +525,6 @@ public class BaseDatosService {
             if (!columnExists) {
                 throw new SQLException(
                         "La columna '" + column.getColumn() + "' no existe en la tabla '" + column.getTable() + "'");
-            }
-        }
-    }
-
-    private void validateSelectedTables(List<DataWarehouseRequest.SelectedTable> selectedTables) throws SQLException {
-        for (DataWarehouseRequest.SelectedTable selectedTable : selectedTables) {
-            String database = selectedTable.getDatabase();
-            String table = selectedTable.getTable();
-
-            // Verificar que la base de datos existe
-            List<String> databases = listarBasesDatos();
-            if (!databases.contains(database)) {
-                throw new SQLException("La base de datos '" + database + "' no existe");
-            }
-
-            // Verificar que la tabla existe
-            List<String> tables = listarTablas(database);
-            if (!tables.contains(table)) {
-                throw new SQLException("La tabla '" + table + "' no existe en la base de datos '" + database + "'");
-            }
-        }
-    }
-
-    private void createWarehouseTable(String warehouseName, String tableName,
-            List<DataWarehouseRequest.SelectedColumn> selectedColumns) throws SQLException {
-        StringBuilder createTableSQL = new StringBuilder();
-        createTableSQL.append("USE [").append(warehouseName).append("]; ");
-        createTableSQL.append("CREATE TABLE [").append(tableName).append("] (");
-
-        List<String> columnDefinitions = new ArrayList<>();
-
-        for (DataWarehouseRequest.SelectedColumn column : selectedColumns) {
-            // Obtener información de la columna original
-            List<TableColumnInfo> columnInfo = obtenerColumnasDeTabla(column.getDatabase(), column.getTable());
-            TableColumnInfo originalColumn = columnInfo.stream()
-                    .filter(col -> col.getName().equals(column.getColumn()))
-                    .findFirst()
-                    .orElseThrow(() -> new SQLException(
-                            "No se pudo obtener información de la columna: " + column.getColumn()));
-
-            String columnName = column.getAlias() != null && !column.getAlias().trim().isEmpty()
-                    ? column.getAlias()
-                    : column.getColumn();
-
-            String columnType = originalColumn.getType();
-            String nullable = "NULL"; // Por defecto permitir NULL
-
-            columnDefinitions.add("[" + columnName + "] " + columnType + " " + nullable);
-        }
-
-        createTableSQL.append(String.join(", ", columnDefinitions));
-        createTableSQL.append(");");
-
-        // Ejecutar la creación de la tabla
-        try (Connection connection = DriverManager.getConnection(url, user, password);
-                Statement statement = connection.createStatement()) {
-            statement.execute(createTableSQL.toString());
-        }
-
-        // Insertar datos en la tabla del warehouse
-        insertDataIntoWarehouseTable(warehouseName, tableName, selectedColumns);
-    }
-
-    private void insertDataIntoWarehouseTable(String warehouseName, String tableName,
-            List<DataWarehouseRequest.SelectedColumn> selectedColumns) throws SQLException {
-        // Agrupar columnas por base de datos y tabla origen
-        Map<String, List<DataWarehouseRequest.SelectedColumn>> groupedColumns = selectedColumns.stream()
-                .collect(Collectors.groupingBy(col -> col.getDatabase() + "." + col.getTable()));
-
-        for (Map.Entry<String, List<DataWarehouseRequest.SelectedColumn>> entry : groupedColumns.entrySet()) {
-            String[] dbTable = entry.getKey().split("\\.");
-            String sourceDatabase = dbTable[0];
-            String sourceTable = dbTable[1];
-            List<DataWarehouseRequest.SelectedColumn> columns = entry.getValue();
-
-            StringBuilder insertSQL = new StringBuilder();
-            insertSQL.append("USE [").append(warehouseName).append("]; ");
-            insertSQL.append("INSERT INTO [").append(tableName).append("] (");
-
-            // Nombres de columnas de destino
-            List<String> destColumns = columns.stream()
-                    .map(col -> "[" + (col.getAlias() != null && !col.getAlias().trim().isEmpty()
-                            ? col.getAlias()
-                            : col.getColumn()) + "]")
-                    .collect(Collectors.toList());
-
-            insertSQL.append(String.join(", ", destColumns));
-            insertSQL.append(") SELECT ");
-
-            // Nombres de columnas de origen
-            List<String> sourceColumns = columns.stream()
-                    .map(col -> "[" + col.getColumn() + "]")
-                    .collect(Collectors.toList());
-
-            insertSQL.append(String.join(", ", sourceColumns));
-            insertSQL.append(" FROM [").append(sourceDatabase).append("].[dbo].[").append(sourceTable).append("];");
-
-            // Ejecutar la inserción
-            try (Connection connection = DriverManager.getConnection(url, user, password);
-                    Statement statement = connection.createStatement()) {
-                statement.execute(insertSQL.toString());
             }
         }
     }
@@ -637,8 +571,11 @@ public class BaseDatosService {
                 return response;
             }
 
-            // Eliminar la base de datos
-            eliminarBaseDatos(warehouseName);
+            // Cerrar todas las conexiones activas a la base de datos antes de eliminarla
+            cerrarConexionesActivas(warehouseName);
+
+            // Eliminar la base de datos (sin volver a cerrar conexiones)
+            eliminarBaseDatosConForzado(warehouseName, false);
 
             response.put("success", true);
             response.put("message", "Data Warehouse '" + warehouseName + "' eliminado exitosamente");
@@ -651,15 +588,368 @@ public class BaseDatosService {
         return response;
     }
 
-    public String ejecutarConsultaWarehouse(WarehouseQueryRequest request) throws SQLException {
-        // Validar que el warehouse existe
-        List<String> databases = listarBasesDatos();
-        if (!databases.contains(request.getWarehouse())) {
-            throw new SQLException("El Data Warehouse '" + request.getWarehouse() + "' no existe");
-        }
+    private void cerrarConexionesActivas(String nombreBD) throws SQLException {
+        // Primer comando: poner la base de datos en modo SINGLE_USER para cerrar todas
+        // las conexiones
+        String setSingleUser = "ALTER DATABASE [" + nombreBD + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE";
+        // Segundo comando: volver a modo MULTI_USER
+        String setMultiUser = "ALTER DATABASE [" + nombreBD + "] SET MULTI_USER";
 
-        // Ejecutar la consulta usando el método ejecutarSelect existente
-        return ejecutarSelect(request.getWarehouse(), request.getQuery());
+        try (Connection conn = DriverManager.getConnection(url, user, password);
+                Statement stmt = conn.createStatement()) {
+
+            // Ejecutar comando para cerrar conexiones (modo SINGLE_USER)
+            stmt.executeUpdate(setSingleUser);
+
+            // Volver a modo MULTI_USER para que se pueda eliminar
+            stmt.executeUpdate(setMultiUser);
+        }
     }
 
+    public Map<String, Object> ejecutarConsultaWarehouse(WarehouseQueryRequest request) throws SQLException {
+        // Validar que el warehouse existe
+        List<String> databases = listarBasesDatos();
+        String databaseName = request.getDatabase() != null ? request.getDatabase() : request.getWarehouse();
+
+        if (!databases.contains(databaseName)) {
+            throw new SQLException("El Data Warehouse '" + databaseName + "' no existe");
+        }
+
+        // Ejecutar la consulta y obtener resultados estructurados
+        return ejecutarSelectEstructurado(databaseName, request.getQuery());
+    }
+
+    private Map<String, Object> ejecutarSelectEstructurado(String nombreBD, String sql) throws SQLException {
+        String sqlTrimmed = sql.trim().toUpperCase();
+        if (!sqlTrimmed.startsWith("SELECT")) {
+            throw new SQLException("Solo se permiten consultas SELECT");
+        }
+
+        String urlConBD = url + "databaseName=" + nombreBD + ";";
+        List<String> columns = new ArrayList<>();
+        List<List<Object>> rows = new ArrayList<>();
+
+        try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(sql)) {
+
+            ResultSetMetaData metaData = rs.getMetaData();
+            int columnCount = metaData.getColumnCount();
+
+            // Obtener nombres de columnas
+            for (int i = 1; i <= columnCount; i++) {
+                columns.add(metaData.getColumnName(i));
+            }
+
+            // Obtener filas
+            while (rs.next()) {
+                List<Object> row = new ArrayList<>();
+                for (int i = 1; i <= columnCount; i++) {
+                    Object value = rs.getObject(i);
+                    row.add(value);
+                }
+                rows.add(row);
+            }
+        }
+
+        // Preparar respuesta
+        Map<String, Object> response = new HashMap<>();
+        response.put("columns", columns);
+        response.put("rows", rows);
+        response.put("totalRows", rows.size());
+
+        return response;
+    }
+
+    private void validateRelationships(List<DataWarehouseRequest.Relationship> relationships) throws SQLException {
+        for (DataWarehouseRequest.Relationship relationship : relationships) {
+            if (relationship.getTable1() == null || relationship.getTable2() == null) {
+                throw new SQLException("Las relaciones deben especificar table1 y table2");
+            }
+            if (relationship.getType() == null || relationship.getType().trim().isEmpty()) {
+                throw new SQLException("Las relaciones deben especificar un tipo (INNER_JOIN, LEFT_JOIN, etc.)");
+            }
+
+            // Validar que las tablas y columnas de la relación existan
+            validateTableReference(relationship.getTable1());
+            validateTableReference(relationship.getTable2());
+        }
+    }
+
+    private void validateTableReference(DataWarehouseRequest.TableRef tableRef) throws SQLException {
+        if (tableRef.getDatabase() == null || tableRef.getDatabase().trim().isEmpty()) {
+            throw new SQLException("La referencia de tabla debe especificar una base de datos");
+        }
+        if (tableRef.getTable() == null || tableRef.getTable().trim().isEmpty()) {
+            throw new SQLException("La referencia de tabla debe especificar una tabla");
+        }
+        if (tableRef.getColumn() == null || tableRef.getColumn().trim().isEmpty()) {
+            throw new SQLException("La referencia de tabla debe especificar una columna");
+        }
+
+        // Verificar que la base de datos existe
+        List<String> databases = listarBasesDatos();
+        if (!databases.contains(tableRef.getDatabase())) {
+            throw new SQLException("La base de datos '" + tableRef.getDatabase() + "' no existe");
+        }
+
+        // Verificar que la tabla existe
+        List<String> tables = listarTablas(tableRef.getDatabase());
+        if (!tables.contains(tableRef.getTable())) {
+            throw new SQLException("La tabla '" + tableRef.getTable() + "' no existe en la base de datos '"
+                    + tableRef.getDatabase() + "'");
+        }
+
+        // Verificar que la columna existe
+        List<TableColumnInfo> columns = obtenerColumnasDeTabla(tableRef.getDatabase(), tableRef.getTable());
+        boolean columnExists = columns.stream()
+                .anyMatch(col -> col.getName().equals(tableRef.getColumn()));
+        if (!columnExists) {
+            throw new SQLException(
+                    "La columna '" + tableRef.getColumn() + "' no existe en la tabla '" + tableRef.getTable() + "'");
+        }
+    }
+
+    private String generateDynamicSQL(String warehouseName, DataWarehouseRequest request) throws SQLException {
+        StringBuilder sql = new StringBuilder();
+
+        try {
+            // Usar el warehouse como contexto
+            sql.append("USE [").append(warehouseName).append("]; ");
+
+            // Validar y obtener las tablas que participan en la consulta
+            Map<String, String> tableAliasMap = buildTableAliasMap(request);
+
+            // Crear la tabla con CREATE TABLE AS SELECT
+            sql.append("SELECT ");
+
+            // Agregar columnas seleccionadas con validación
+            List<String> selectColumns = new ArrayList<>();
+            for (DataWarehouseRequest.SelectedColumn column : request.getSelectedColumns()) {
+                String tableKey = column.getDatabase() + "." + column.getTable();
+                String tableAlias = tableAliasMap.get(tableKey);
+
+                if (tableAlias == null) {
+                    throw new SQLException("No se encontró alias para la tabla: " + tableKey);
+                }
+
+                String columnAlias = column.getAlias() != null && !column.getAlias().trim().isEmpty()
+                        ? column.getAlias()
+                        : column.getColumn();
+
+                // Validar que la columna existe en la tabla
+                validateColumnExists(column.getDatabase(), column.getTable(), column.getColumn());
+
+                selectColumns.add(tableAlias + ".[" + column.getColumn() + "] AS [" + columnAlias + "]");
+            }
+
+            sql.append(String.join(", ", selectColumns));
+
+            // Agregar INTO clause para crear la tabla
+            sql.append(" INTO [").append(request.getTableName()).append("] ");
+
+            // Construir FROM y JOINs de manera ordenada
+            String fromAndJoins = buildFromAndJoins(request, tableAliasMap);
+            sql.append(fromAndJoins);
+
+            sql.append(";");
+
+        } catch (SQLException e) {
+            throw new SQLException("Error al generar SQL dinámico: " + e.getMessage(), e);
+        }
+
+        return sql.toString();
+    }
+
+    private Map<String, String> buildTableAliasMap(DataWarehouseRequest request) {
+        Map<String, String> aliasMap = new HashMap<>();
+
+        // Primero agregar tablas de selectedTables con sus alias
+        if (request.getSelectedTables() != null) {
+            for (DataWarehouseRequest.SelectedTable selectedTable : request.getSelectedTables()) {
+                String tableKey = selectedTable.getDatabase() + "." + selectedTable.getTable();
+                String alias = selectedTable.getAlias() != null && !selectedTable.getAlias().trim().isEmpty()
+                        ? selectedTable.getAlias()
+                        : selectedTable.getTable().substring(0, Math.min(3, selectedTable.getTable().length()));
+                aliasMap.put(tableKey, alias);
+            }
+        }
+
+        // Agregar tablas de selectedColumns que no estén ya mapeadas
+        for (DataWarehouseRequest.SelectedColumn column : request.getSelectedColumns()) {
+            String tableKey = column.getDatabase() + "." + column.getTable();
+            if (!aliasMap.containsKey(tableKey)) {
+                String alias = column.getTable().substring(0, Math.min(3, column.getTable().length()));
+                aliasMap.put(tableKey, alias);
+            }
+        }
+
+        return aliasMap;
+    }
+
+    private void validateColumnExists(String database, String table, String column) throws SQLException {
+        List<TableColumnInfo> columns = obtenerColumnasDeTabla(database, table);
+        boolean exists = columns.stream().anyMatch(col -> col.getName().equals(column));
+        if (!exists) {
+            throw new SQLException("La columna '" + column + "' no existe en la tabla '" + table
+                    + "' de la base de datos '" + database + "'");
+        }
+    }
+
+    private String buildFromAndJoins(DataWarehouseRequest request, Map<String, String> tableAliasMap)
+            throws SQLException {
+        StringBuilder fromClause = new StringBuilder();
+
+        // Determinar tabla principal (primera tabla que aparece en selectedColumns)
+        DataWarehouseRequest.SelectedColumn firstColumn = request.getSelectedColumns().get(0);
+        String mainTableKey = firstColumn.getDatabase() + "." + firstColumn.getTable();
+        String mainAlias = tableAliasMap.get(mainTableKey);
+
+        fromClause.append("FROM [").append(firstColumn.getDatabase()).append("].[dbo].[")
+                .append(firstColumn.getTable()).append("] ").append(mainAlias);
+
+        // Procesar JOINs si hay relaciones
+        if (request.getRelationships() != null && !request.getRelationships().isEmpty()) {
+            Set<String> joinedTables = new HashSet<>();
+            joinedTables.add(mainTableKey);
+
+            // Procesar relaciones en orden para construir JOINs correctamente
+            for (DataWarehouseRequest.Relationship relationship : request.getRelationships()) {
+                String joinType = mapJoinType(relationship.getType());
+
+                DataWarehouseRequest.TableRef table1 = relationship.getTable1();
+                DataWarehouseRequest.TableRef table2 = relationship.getTable2();
+
+                String table1Key = table1.getDatabase() + "." + table1.getTable();
+                String table2Key = table2.getDatabase() + "." + table2.getTable();
+
+                // Validar compatibilidad de tipos de columnas para el JOIN
+                validateJoinCompatibility(table1, table2);
+
+                // Determinar cuál tabla unir basándose en las ya incluidas
+                String joinCondition;
+                if (joinedTables.contains(table1Key)) {
+                    // Unir table2
+                    String joinAlias = tableAliasMap.get(table2Key);
+                    joinCondition = tableAliasMap.get(table1Key) + ".[" + table1.getColumn() + "] = "
+                            + joinAlias + ".[" + table2.getColumn() + "]";
+                    fromClause.append(" ").append(joinType).append(" [").append(table2.getDatabase())
+                            .append("].[dbo].[").append(table2.getTable()).append("] ").append(joinAlias)
+                            .append(" ON ").append(joinCondition);
+                    joinedTables.add(table2Key);
+                } else if (joinedTables.contains(table2Key)) {
+                    // Unir table1
+                    String joinAlias = tableAliasMap.get(table1Key);
+                    joinCondition = tableAliasMap.get(table2Key) + ".[" + table2.getColumn() + "] = "
+                            + joinAlias + ".[" + table1.getColumn() + "]";
+                    fromClause.append(" ").append(joinType).append(" [").append(table1.getDatabase())
+                            .append("].[dbo].[").append(table1.getTable()).append("] ").append(joinAlias)
+                            .append(" ON ").append(joinCondition);
+                    joinedTables.add(table1Key);
+                } else {
+                    throw new SQLException("Relación inválida: ninguna de las tablas (" + table1Key + ", " + table2Key
+                            + ") está incluida en el FROM principal");
+                }
+            }
+        }
+
+        return fromClause.toString();
+    }
+
+    private void validateJoinCompatibility(DataWarehouseRequest.TableRef table1, DataWarehouseRequest.TableRef table2)
+            throws SQLException {
+        // Obtener información de las columnas para validar compatibilidad
+        List<TableColumnInfo> columns1 = obtenerColumnasDeTabla(table1.getDatabase(), table1.getTable());
+        List<TableColumnInfo> columns2 = obtenerColumnasDeTabla(table2.getDatabase(), table2.getTable());
+
+        TableColumnInfo col1 = columns1.stream()
+                .filter(col -> col.getName().equals(table1.getColumn()))
+                .findFirst()
+                .orElseThrow(() -> new SQLException(
+                        "Columna '" + table1.getColumn() + "' no encontrada en tabla " + table1.getTable()));
+
+        TableColumnInfo col2 = columns2.stream()
+                .filter(col -> col.getName().equals(table2.getColumn()))
+                .findFirst()
+                .orElseThrow(() -> new SQLException(
+                        "Columna '" + table2.getColumn() + "' no encontrada en tabla " + table2.getTable()));
+
+        // Validación básica de tipos (puedes expandir esto según necesidades)
+        String type1 = col1.getType().toUpperCase();
+        String type2 = col2.getType().toUpperCase();
+
+        // Extraer tipo base (sin longitud/precisión)
+        String baseType1 = type1.split("\\(")[0].trim();
+        String baseType2 = type2.split("\\(")[0].trim();
+
+        // Lista de tipos compatibles
+        Set<String> numericTypes = Set.of("INT", "BIGINT", "SMALLINT", "TINYINT", "DECIMAL", "NUMERIC", "FLOAT",
+                "REAL");
+        Set<String> stringTypes = Set.of("VARCHAR", "NVARCHAR", "CHAR", "NCHAR", "TEXT", "NTEXT");
+        Set<String> dateTypes = Set.of("DATE", "DATETIME", "DATETIME2", "SMALLDATETIME", "TIME", "TIMESTAMP");
+
+        boolean compatible = false;
+        if (baseType1.equals(baseType2)) {
+            compatible = true; // Mismos tipos son compatibles
+        } else if (numericTypes.contains(baseType1) && numericTypes.contains(baseType2)) {
+            compatible = true; // Tipos numéricos son compatibles entre sí
+        } else if (stringTypes.contains(baseType1) && stringTypes.contains(baseType2)) {
+            compatible = true; // Tipos de cadena son compatibles entre sí
+        } else if (dateTypes.contains(baseType1) && dateTypes.contains(baseType2)) {
+            compatible = true; // Tipos de fecha son compatibles entre sí
+        }
+
+        if (!compatible) {
+            throw new SQLException("Tipos de columnas incompatibles para JOIN: " +
+                    table1.getTable() + "." + table1.getColumn() + " (" + type1 + ") vs " +
+                    table2.getTable() + "." + table2.getColumn() + " (" + type2 + ")");
+        }
+    }
+
+    private String mapJoinType(String joinType) {
+        switch (joinType.toUpperCase()) {
+            case "INNER_JOIN":
+                return "INNER JOIN";
+            case "LEFT_JOIN":
+                return "LEFT JOIN";
+            case "RIGHT_JOIN":
+                return "RIGHT JOIN";
+            case "FULL_JOIN":
+                return "FULL OUTER JOIN";
+            default:
+                return "INNER JOIN"; // Por defecto
+        }
+    }
+
+    private void executeSQL(String sql) throws SQLException {
+        try (Connection conn = DriverManager.getConnection(url, user, password);
+                Statement stmt = conn.createStatement()) {
+            stmt.execute(sql);
+        }
+    }
+
+    public List<WarehouseListInfo> listarDataWarehousesConTablas() throws SQLException {
+        List<WarehouseListInfo> warehouses = new ArrayList<>();
+
+        // Obtener todas las bases de datos que podrían ser data warehouses
+        List<String> databases = listarBasesDatos();
+
+        for (String dbName : databases) {
+            // Solo considerar bases de datos que terminen con "_warehouse"
+            if (dbName.toLowerCase().endsWith("_warehouse")) {
+                try {
+                    // Obtener las tablas de la base de datos
+                    List<String> tables = listarTablas(dbName);
+
+                    WarehouseListInfo warehouse = new WarehouseListInfo(dbName, tables);
+                    warehouses.add(warehouse);
+                } catch (SQLException e) {
+                    // Si hay error con una base de datos, continuar con las demás
+                    System.err.println("Error al obtener tablas del warehouse " + dbName + ": " + e.getMessage());
+                }
+            }
+        }
+
+        return warehouses;
+    }
 }
