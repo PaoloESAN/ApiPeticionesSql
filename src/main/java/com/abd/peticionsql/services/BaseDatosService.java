@@ -428,6 +428,8 @@ public class BaseDatosService {
 
     public Map<String, Object> crearDataWarehouse(DataWarehouseRequest request) throws SQLException {
         Map<String, Object> response = new HashMap<>();
+        String warehouseName = null;
+        boolean databaseCreated = false;
 
         try {
             // Validación de datos de entrada
@@ -442,7 +444,7 @@ public class BaseDatosService {
             }
 
             // Preparar nombre del warehouse
-            String warehouseName = request.getName().trim();
+            warehouseName = request.getName().trim();
             if (!warehouseName.toLowerCase().endsWith("_warehouse")) {
                 warehouseName += "_warehouse";
             }
@@ -453,19 +455,22 @@ public class BaseDatosService {
                 throw new SQLException("Ya existe una base de datos con el nombre '" + warehouseName + "'");
             }
 
-            // Validar que todas las bases de datos, tablas y columnas existan
+            // Validar que todas las bases de datos, tablas y columnas existan ANTES de
+            // crear la base de datos
             validateSelectedColumns(request.getSelectedColumns());
 
-            // Si hay relaciones, validarlas también
+            // Si hay relaciones, validarlas también ANTES de crear la base de datos
             if (request.getRelationships() != null && !request.getRelationships().isEmpty()) {
                 validateRelationships(request.getRelationships());
             }
 
-            // Crear la base de datos del warehouse
-            crearBaseDatos(warehouseName);
-
-            // Generar y ejecutar SQL dinámico
+            // Generar SQL dinámico ANTES de crear la base de datos para validar que se
+            // puede generar
             String generatedSQL = generateDynamicSQL(warehouseName, request);
+
+            // Solo si todas las validaciones pasan, crear la base de datos
+            crearBaseDatos(warehouseName);
+            databaseCreated = true;
 
             // Ejecutar el SQL generado
             executeSQL(generatedSQL);
@@ -484,6 +489,19 @@ public class BaseDatosService {
             response.put("details", details);
 
         } catch (SQLException e) {
+            // Si ocurrió un error y ya se creó la base de datos, la eliminamos (rollback)
+            if (databaseCreated && warehouseName != null) {
+                try {
+                    System.out.println("Realizando rollback: eliminando base de datos creada '" + warehouseName + "'");
+                    eliminarBaseDatos(warehouseName);
+                    System.out.println("Rollback completado exitosamente");
+                } catch (SQLException rollbackException) {
+                    System.err.println("Error durante rollback al eliminar base de datos '" + warehouseName + "': "
+                            + rollbackException.getMessage());
+                    // No relanzamos la excepción de rollback, mantenemos la original
+                }
+            }
+
             response.put("warehouseName", null);
             response.put("message", "Error al crear Data Warehouse: " + e.getMessage());
             response.put("sql", null);
