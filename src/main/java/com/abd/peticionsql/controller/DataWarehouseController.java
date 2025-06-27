@@ -227,4 +227,19 @@ public class DataWarehouseController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
+
+    @GetMapping("/columns")
+    public ResponseEntity<?> getWarehouseColumns(@RequestParam(name = "name", required = true) String warehouseName) {
+        try {
+            List<Map<String, Object>> columns = baseDatosService.obtenerColumnasDeWarehouse(warehouseName);
+            Map<String, Object> response = new HashMap<>();
+            response.put("columns", columns);
+            return ResponseEntity.ok(response);
+        } catch (SQLException e) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("error",
+                    "Error al obtener columnas del Data Warehouse '" + warehouseName + "': " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
 }

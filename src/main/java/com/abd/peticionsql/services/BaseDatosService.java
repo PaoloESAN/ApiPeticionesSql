@@ -2,6 +2,7 @@ package com.abd.peticionsql.services;
 
 import com.abd.peticionsql.model.ColumnaInfo;
 import com.abd.peticionsql.model.DatabaseInfo;
+import com.abd.peticionsql.model.DataMartRequest;
 import com.abd.peticionsql.model.DataWarehouseRequest;
 import com.abd.peticionsql.model.TableColumnInfo;
 import com.abd.peticionsql.model.WarehouseInfo;
@@ -964,6 +965,224 @@ public class BaseDatosService {
                     """, nombreBD, nombreBD, nombreBD);
 
             stmt.execute(sqlForzado);
+        }
+    }
+
+    public List<Map<String, Object>> obtenerColumnasDeWarehouse(String warehouseName) throws SQLException {
+        List<Map<String, Object>> allColumns = new ArrayList<>();
+
+        // Verificar que el warehouse existe
+        List<String> databases = listarBasesDatos();
+        if (!databases.contains(warehouseName)) {
+            throw new SQLException("El Data Warehouse '" + warehouseName + "' no existe");
+        }
+
+        String urlConBD = url + "databaseName=" + warehouseName + ";";
+
+        String sql = """
+                SELECT
+                    c.TABLE_NAME,
+                    c.COLUMN_NAME,
+                    c.DATA_TYPE +
+                    CASE
+                        WHEN c.CHARACTER_MAXIMUM_LENGTH IS NOT NULL THEN '(' + CAST(c.CHARACTER_MAXIMUM_LENGTH AS VARCHAR) + ')'
+                        WHEN c.NUMERIC_PRECISION IS NOT NULL AND c.NUMERIC_SCALE IS NOT NULL THEN '(' + CAST(c.NUMERIC_PRECISION AS VARCHAR) + ',' + CAST(c.NUMERIC_SCALE AS VARCHAR) + ')'
+                        WHEN c.NUMERIC_PRECISION IS NOT NULL THEN '(' + CAST(c.NUMERIC_PRECISION AS VARCHAR) + ')'
+                        ELSE ''
+                    END as TIPO_COMPLETO,
+                    CASE WHEN c.IS_NULLABLE = 'YES' THEN 1 ELSE 0 END as ES_NULO,
+                    CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as ES_PRIMARIA
+                FROM INFORMATION_SCHEMA.COLUMNS c
+                INNER JOIN INFORMATION_SCHEMA.TABLES t ON c.TABLE_NAME = t.TABLE_NAME
+                LEFT JOIN (
+                    SELECT tc.TABLE_NAME, ku.COLUMN_NAME
+                    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                    INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                    ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                    WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                ) pk ON c.TABLE_NAME = pk.TABLE_NAME AND c.COLUMN_NAME = pk.COLUMN_NAME
+                WHERE t.TABLE_TYPE = 'BASE TABLE' AND c.TABLE_NAME NOT LIKE 'sys%'
+                ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION
+                """;
+
+        try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                Map<String, Object> column = new HashMap<>();
+                column.put("table", rs.getString("TABLE_NAME"));
+                column.put("name", rs.getString("COLUMN_NAME"));
+                column.put("type", rs.getString("TIPO_COMPLETO"));
+                column.put("nullable", rs.getBoolean("ES_NULO"));
+                column.put("primaryKey", rs.getBoolean("ES_PRIMARIA"));
+                allColumns.add(column);
+            }
+        }
+
+        return allColumns;
+    }
+
+    public Map<String, Object> crearDataMart(DataMartRequest request) throws SQLException {
+        Map<String, Object> response = new HashMap<>();
+        long startTime = System.currentTimeMillis();
+
+        try {
+            // Validación de datos de entrada
+            if (request.getName() == null || request.getName().trim().isEmpty()) {
+                throw new SQLException("El nombre del Data Mart es requerido");
+            }
+            if (request.getSourceWarehouse() == null || request.getSourceWarehouse().trim().isEmpty()) {
+                throw new SQLException("El warehouse de origen es requerido");
+            }
+            if (request.getSelectedColumns() == null || request.getSelectedColumns().isEmpty()) {
+                throw new SQLException("Debe especificar al menos una columna para el Data Mart");
+            }
+
+            String dataMartName = request.getName().trim();
+            String sourceWarehouse = request.getSourceWarehouse().trim();
+
+            // Verificar que el warehouse de origen existe
+            List<String> databases = listarBasesDatos();
+            if (!databases.contains(sourceWarehouse)) {
+                throw new SQLException("El warehouse de origen '" + sourceWarehouse + "' no existe");
+            }
+
+            // Determinar tabla origen
+            String sourceTable = determineSourceTable(sourceWarehouse, request);
+
+            // Verificar que las columnas existen en la tabla origen específica
+            validateDataMartColumnsInTable(sourceWarehouse, sourceTable, request.getSelectedColumns());
+
+            // Generar SQL para crear el data mart
+            String generatedSQL = generateDataMartSQL(dataMartName, sourceWarehouse, sourceTable,
+                    request.getSelectedColumns());
+
+            // Ejecutar el SQL en el warehouse de origen
+            int rowsAffected = executeDataMartSQL(sourceWarehouse, generatedSQL);
+
+            // Calcular tiempo de ejecución
+            long endTime = System.currentTimeMillis();
+            double executionTime = (endTime - startTime) / 1000.0;
+
+            // Preparar respuesta exitosa
+            Map<String, Object> details = new HashMap<>();
+            details.put("rowsAffected", rowsAffected);
+            details.put("columnsCreated", request.getSelectedColumns().size());
+            details.put("executionTime", String.format("%.2fs", executionTime));
+            details.put("sourceTable", sourceTable);
+
+            response.put("success", true);
+            response.put("message",
+                    "Data Mart '" + dataMartName + "' creado exitosamente desde la tabla '" + sourceTable + "'");
+            response.put("dataMartName", dataMartName);
+            response.put("sql", generatedSQL);
+            response.put("details", details);
+
+        } catch (SQLException e) {
+            response.put("success", false);
+            response.put("message", "Error al crear Data Mart: " + e.getMessage());
+            response.put("dataMartName", null);
+            response.put("sql", null);
+            response.put("details", null);
+        }
+
+        return response;
+    }
+
+    private void validateDataMartColumnsInTable(String warehouse, String table,
+            List<DataMartRequest.SelectedColumn> selectedColumns)
+            throws SQLException {
+        // Obtener todas las columnas de la tabla específica
+        List<TableColumnInfo> tableColumns = obtenerColumnasDeTabla(warehouse, table);
+
+        for (DataMartRequest.SelectedColumn selectedCol : selectedColumns) {
+            boolean columnExists = tableColumns.stream()
+                    .anyMatch(col -> col.getName().equals(selectedCol.getName()));
+
+            if (!columnExists) {
+                throw new SQLException(
+                        "La columna '" + selectedCol.getName() + "' no existe en la tabla '" + table
+                                + "' del warehouse '" + warehouse + "'");
+            }
+        }
+    }
+
+    private String determineSourceTable(String warehouse, DataMartRequest request) throws SQLException {
+        // Si se especifica una tabla origen, la usamos
+        if (request.getSourceTable() != null && !request.getSourceTable().trim().isEmpty()) {
+            String sourceTable = request.getSourceTable().trim();
+
+            // Verificar que la tabla existe
+            List<String> tables = listarTablas(warehouse);
+            if (!tables.contains(sourceTable)) {
+                throw new SQLException("La tabla origen especificada '" + sourceTable + "' no existe en el warehouse '"
+                        + warehouse + "'");
+            }
+
+            return sourceTable;
+        }
+
+        // Si no se especifica, buscar automáticamente una tabla apropiada
+        List<String> tables = listarTablas(warehouse);
+
+        if (tables.isEmpty()) {
+            throw new SQLException("El warehouse '" + warehouse + "' no tiene tablas disponibles");
+        }
+
+        // Priorizar tablas con nombres comunes de warehouse
+        String[] priorityNames = { "datos_consolidados", "warehouse_data", "consolidated_data", "main_data", "data" };
+
+        for (String priorityName : priorityNames) {
+            if (tables.contains(priorityName)) {
+                return priorityName;
+            }
+        }
+
+        // Si no encuentra ninguna tabla prioritaria, usar la primera tabla disponible
+        String selectedTable = tables.get(0);
+
+        // Si hay múltiples tablas y ninguna tiene un nombre prioritario, sugerir
+        // especificar la tabla
+        if (tables.size() > 1) {
+            throw new SQLException("El warehouse '" + warehouse + "' tiene múltiples tablas (" +
+                    String.join(", ", tables) + "). Por favor, especifique la tabla origen en el campo 'sourceTable'.");
+        }
+
+        return selectedTable;
+    }
+
+    private String generateDataMartSQL(String dataMartName, String sourceWarehouse, String sourceTable,
+            List<DataMartRequest.SelectedColumn> selectedColumns) {
+        StringBuilder sql = new StringBuilder();
+
+        // Construir SELECT con alias
+        sql.append("SELECT ");
+        List<String> selectColumns = new ArrayList<>();
+
+        for (DataMartRequest.SelectedColumn column : selectedColumns) {
+            String columnSQL = "[" + column.getName() + "]";
+            if (column.getAlias() != null && !column.getAlias().trim().isEmpty()) {
+                columnSQL += " AS [" + column.getAlias() + "]";
+            }
+            selectColumns.add(columnSQL);
+        }
+
+        sql.append(String.join(", ", selectColumns));
+        sql.append(" INTO [").append(dataMartName).append("]");
+        sql.append(" FROM [").append(sourceWarehouse).append("].[dbo].[").append(sourceTable).append("]");
+
+        return sql.toString();
+    }
+
+    private int executeDataMartSQL(String warehouse, String sql) throws SQLException {
+        String urlConBD = url + "databaseName=" + warehouse + ";";
+
+        try (Connection conn = DriverManager.getConnection(urlConBD, user, password);
+                Statement stmt = conn.createStatement()) {
+
+            stmt.execute(sql);
+            return stmt.getUpdateCount();
         }
     }
 }
